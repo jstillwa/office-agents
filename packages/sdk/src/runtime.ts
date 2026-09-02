@@ -14,6 +14,7 @@ import {
   streamSimple,
 } from "@earendil-works/pi-ai";
 import type { AgentContext, StorageNamespace } from "./context";
+import { loadMcpTools } from "./mcp";
 import {
   agentMessagesToChatMessages,
   type ChatMessage,
@@ -22,7 +23,6 @@ import {
   generateId,
   type SessionStats,
 } from "./message-utils";
-import { loadMcpTools } from "./mcp";
 import {
   loadOAuthCredentials,
   refreshOAuthToken,

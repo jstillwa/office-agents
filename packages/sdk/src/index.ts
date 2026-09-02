@@ -9,6 +9,14 @@ export type { ImageResizeOptions, ResizedImage } from "./image-resize";
 export { resizeImage } from "./image-resize";
 // Lockdown
 export { ensureLockdown } from "./lockdown";
+// MCP (Model Context Protocol)
+export {
+  loadMcpConfig,
+  loadMcpTools,
+  type McpConfig,
+  type McpServerConfig,
+  saveMcpConfig,
+} from "./mcp";
 // Message utilities
 export {
   agentMessagesToChatMessages,
@@ -34,14 +42,6 @@ export {
   removeOAuthCredentials,
   saveOAuthCredentials,
 } from "./oauth";
-// MCP (Model Context Protocol)
-export {
-  loadMcpConfig,
-  loadMcpTools,
-  type McpConfig,
-  type McpServerConfig,
-  saveMcpConfig,
-} from "./mcp";
 export { loadPdfDocument } from "./pdf";
 // Provider config
 export {
