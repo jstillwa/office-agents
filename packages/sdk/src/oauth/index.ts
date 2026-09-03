@@ -26,6 +26,7 @@ export const OAUTH_PROVIDERS: Record<
 };
 
 import type { StorageNamespace } from "../context";
+import { isEnterprise } from "../provider-config";
 
 function oauthStorageKey(ns: StorageNamespace): string {
   return `${ns.localStoragePrefix}-oauth-credentials`;
@@ -35,6 +36,12 @@ export function loadOAuthCredentials(
   ns: StorageNamespace,
   provider: string,
 ): OAuthCredentials | null {
+  if (isEnterprise()) {
+    try {
+      localStorage.removeItem(oauthStorageKey(ns));
+    } catch {}
+    return null;
+  }
   try {
     const store = JSON.parse(localStorage.getItem(oauthStorageKey(ns)) || "{}");
     return store[provider] || null;
@@ -48,6 +55,12 @@ export function saveOAuthCredentials(
   provider: string,
   creds: OAuthCredentials,
 ) {
+  if (isEnterprise()) {
+    try {
+      localStorage.removeItem(oauthStorageKey(ns));
+    } catch {}
+    return;
+  }
   try {
     const key = oauthStorageKey(ns);
     const store = JSON.parse(localStorage.getItem(key) || "{}");
@@ -116,6 +129,9 @@ export function buildAuthorizationUrl(
   challenge: string,
   verifier: string,
 ): { url: string; oauthState?: string } {
+  if (isEnterprise()) {
+    throw new Error("Consumer OAuth is disabled in enterprise mode");
+  }
   if (provider === "openai-codex") {
     const oauthState = createRandomState();
     const params = new URLSearchParams({
@@ -226,6 +242,9 @@ export async function refreshOAuthToken(
   proxyUrl: string,
   useProxy: boolean,
 ): Promise<OAuthCredentials> {
+  if (isEnterprise()) {
+    throw new Error("Consumer OAuth is disabled in enterprise mode");
+  }
   if (provider === "openai-codex") {
     return refreshOpenAICodexOAuth(refreshToken, proxyUrl, useProxy);
   }
@@ -240,6 +259,9 @@ export async function exchangeOAuthCode(params: {
   useProxy: boolean;
   proxyUrl: string;
 }): Promise<OAuthCredentials> {
+  if (isEnterprise()) {
+    throw new Error("Consumer OAuth is disabled in enterprise mode");
+  }
   const { provider, rawInput, verifier, expectedState, useProxy, proxyUrl } =
     params;
 

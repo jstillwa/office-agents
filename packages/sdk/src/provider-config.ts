@@ -15,8 +15,37 @@ export interface ProviderConfig {
   expandToolCalls: boolean;
   apiType?: string;
   customBaseUrl?: string;
-  authMethod?: "apikey" | "oauth";
+  authMethod?: "apikey" | "oauth" | "sso";
 }
+
+function getEnv(key: string): string | undefined {
+  const metaEnv = (
+    import.meta as unknown as { env?: Record<string, string | undefined> }
+  ).env;
+  if (metaEnv && metaEnv[key] !== undefined) {
+    return metaEnv[key];
+  }
+  const proc = (
+    globalThis as unknown as {
+      process?: { env?: Record<string, string | undefined> };
+    }
+  ).process;
+  return proc?.env?.[key];
+}
+
+export function isEnterprise(): boolean {
+  return getEnv("VITE_APP_MODE") === "enterprise";
+}
+
+export const ENTERPRISE_GATEWAY_URL =
+  getEnv("VITE_ENTERPRISE_GATEWAY_URL") ||
+  "https://gateway.enterprise.internal/v1";
+
+export const ENTERPRISE_DEFAULT_MODEL =
+  getEnv("VITE_ENTERPRISE_MODEL") || "corporate-default";
+
+export const ENTERPRISE_DEFAULT_API_TYPE =
+  getEnv("VITE_ENTERPRISE_API_TYPE") || "openai-completions";
 
 function storageKey(ns: StorageNamespace): string {
   return `${ns.localStoragePrefix}-provider-config`;
@@ -64,33 +93,123 @@ export const API_TYPES = [
   { id: "google-vertex", name: "Google Vertex AI", hint: "Vertex AI endpoint" },
 ];
 
+const VALID_API_TYPES = new Set(API_TYPES.map((t) => t.id));
+
+export function isValidApiType(type: unknown): type is string {
+  return typeof type === "string" && (type === "" || VALID_API_TYPES.has(type));
+}
+
+function isValidConfigObject(obj: unknown): obj is Record<string, unknown> {
+  return typeof obj === "object" && obj !== null && !Array.isArray(obj);
+}
+
 export function loadSavedConfig(ns: StorageNamespace): ProviderConfig | null {
   try {
     const saved = localStorage.getItem(storageKey(ns));
     if (saved) {
-      const config = JSON.parse(saved);
-      if (config.proxyUrl === undefined) config.proxyUrl = "";
-      if (config.followMode === undefined) config.followMode = true;
-      if (config.expandToolCalls === undefined) config.expandToolCalls = false;
-      if (config.apiType === undefined) config.apiType = "";
-      if (config.customBaseUrl === undefined) config.customBaseUrl = "";
-      if (config.authMethod === undefined) config.authMethod = "apikey";
-      if (config.authMethod === "oauth") {
-        const creds = loadOAuthCredentials(ns, config.provider);
-        if (creds) config.apiKey = creds.access;
+      const parsed = JSON.parse(saved);
+      if (isValidConfigObject(parsed)) {
+        const config: ProviderConfig = {
+          provider:
+            typeof parsed.provider === "string" ? parsed.provider : "custom",
+          apiKey: typeof parsed.apiKey === "string" ? parsed.apiKey : "",
+          model: typeof parsed.model === "string" ? parsed.model : "",
+          useProxy:
+            typeof parsed.useProxy === "boolean" ? parsed.useProxy : true,
+          proxyUrl: typeof parsed.proxyUrl === "string" ? parsed.proxyUrl : "",
+          thinking: (["none", "low", "medium", "high"].includes(
+            parsed.thinking as string,
+          )
+            ? parsed.thinking
+            : "none") as ThinkingLevel,
+          followMode:
+            typeof parsed.followMode === "boolean" ? parsed.followMode : true,
+          expandToolCalls:
+            typeof parsed.expandToolCalls === "boolean"
+              ? parsed.expandToolCalls
+              : false,
+          apiType: isValidApiType(parsed.apiType)
+            ? (parsed.apiType as string)
+            : "openai-completions",
+          customBaseUrl:
+            typeof parsed.customBaseUrl === "string"
+              ? parsed.customBaseUrl
+              : "",
+          authMethod: (["apikey", "oauth", "sso"].includes(
+            parsed.authMethod as string,
+          )
+            ? parsed.authMethod
+            : "apikey") as "apikey" | "oauth" | "sso",
+        };
+
+        if (isEnterprise()) {
+          config.apiKey = "";
+          config.useProxy = false;
+          config.proxyUrl = "";
+          config.authMethod = "sso";
+          config.provider = "custom";
+          config.customBaseUrl = config.customBaseUrl || ENTERPRISE_GATEWAY_URL;
+          config.model = config.model || ENTERPRISE_DEFAULT_MODEL;
+          config.apiType = config.apiType || ENTERPRISE_DEFAULT_API_TYPE;
+          return config;
+        }
+
+        if (config.authMethod === "oauth") {
+          const creds = loadOAuthCredentials(ns, config.provider);
+          if (creds) config.apiKey = creds.access;
+        }
+        return config;
       }
-      return config;
     }
   } catch {}
+
+  if (isEnterprise()) {
+    return {
+      provider: "custom",
+      apiKey: "",
+      model: ENTERPRISE_DEFAULT_MODEL,
+      useProxy: false,
+      proxyUrl: "",
+      thinking: "none",
+      followMode: true,
+      expandToolCalls: false,
+      apiType: ENTERPRISE_DEFAULT_API_TYPE,
+      customBaseUrl: ENTERPRISE_GATEWAY_URL,
+      authMethod: "sso",
+    };
+  }
+
   return null;
 }
 
 export function saveConfig(ns: StorageNamespace, config: ProviderConfig) {
+  if (isEnterprise()) {
+    const safeConfig: ProviderConfig = {
+      provider: "custom",
+      apiKey: "",
+      model: config.model || ENTERPRISE_DEFAULT_MODEL,
+      useProxy: false,
+      proxyUrl: "",
+      thinking: config.thinking || "none",
+      followMode: config.followMode ?? true,
+      expandToolCalls: config.expandToolCalls ?? false,
+      apiType:
+        isValidApiType(config.apiType) && config.apiType
+          ? config.apiType
+          : ENTERPRISE_DEFAULT_API_TYPE,
+      customBaseUrl: config.customBaseUrl || ENTERPRISE_GATEWAY_URL,
+      authMethod: "sso",
+    };
+    const { apiKey: _, ...withoutKey } = safeConfig;
+    localStorage.setItem(storageKey(ns), JSON.stringify(withoutKey));
+    return;
+  }
   localStorage.setItem(storageKey(ns), JSON.stringify(config));
 }
 
 export function buildCustomModel(config: ProviderConfig): Model<Api> | null {
   if (!config.apiType || !config.customBaseUrl || !config.model) return null;
+  if (!isValidApiType(config.apiType)) return null;
   return {
     id: config.model,
     name: config.model,

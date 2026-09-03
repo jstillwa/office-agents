@@ -178,12 +178,6 @@ export async function saveSession(
   sessionId: string,
   agentMessages: AgentMessage[],
 ): Promise<void> {
-  console.log(
-    "[DB] saveSession:",
-    sessionId,
-    "agentMessages:",
-    agentMessages.length,
-  );
   const db = await getDb(ns);
   const session = await db.get("sessions", sessionId);
   if (!session) {
@@ -201,7 +195,6 @@ export async function saveSession(
     name,
     updatedAt: Date.now(),
   });
-  console.log("[DB] saveSession complete");
 }
 
 export async function renameSession(
@@ -242,7 +235,6 @@ export async function saveVfsFiles(
   sessionId: string,
   files: { path: string; data: Uint8Array }[],
 ): Promise<void> {
-  console.log("[DB] saveVfsFiles:", sessionId, "files:", files.length);
   const db = await getDb(ns);
   const tx = db.transaction("vfsFiles", "readwrite");
   const store = tx.store;
@@ -267,7 +259,6 @@ export async function loadVfsFiles(
 ): Promise<{ path: string; data: Uint8Array }[]> {
   const db = await getDb(ns);
   const rows = await db.getAllFromIndex("vfsFiles", "sessionId", sessionId);
-  console.log("[DB] loadVfsFiles:", sessionId, "files:", rows.length);
   return rows.map((r) => ({ path: r.path, data: r.data }));
 }
 

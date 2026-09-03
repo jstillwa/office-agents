@@ -48,6 +48,11 @@ export {
   API_TYPES,
   applyProxyToModel,
   buildCustomModel,
+  ENTERPRISE_DEFAULT_API_TYPE,
+  ENTERPRISE_DEFAULT_MODEL,
+  ENTERPRISE_GATEWAY_URL,
+  isEnterprise,
+  isValidApiType,
   loadSavedConfig,
   type ProviderConfig,
   saveConfig,
@@ -74,6 +79,12 @@ export {
   type SkillMeta,
   syncSkillsToVfs,
 } from "./skills";
+// SSO (Entra ID)
+export {
+  clearCachedSsoToken,
+  parseJwtExpiry,
+  resolveOfficeSsoToken,
+} from "./sso";
 // Storage
 export {
   type ChatSession,

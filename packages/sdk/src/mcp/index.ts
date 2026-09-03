@@ -1,5 +1,7 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { StorageNamespace } from "../context";
+import { isEnterprise } from "../provider-config";
+import { resolveOfficeSsoToken } from "../sso";
 
 // Minimal Model Context Protocol (MCP) client + tool loader.
 // Speaks the Streamable HTTP transport (JSON-RPC over POST, SSE responses).
@@ -48,7 +50,16 @@ export function loadMcpConfig(ns: StorageNamespace): McpConfig {
     const raw = localStorage.getItem(mcpStorageKey(ns));
     if (!raw) return { servers: [] };
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed?.servers)) return { servers: parsed.servers };
+    if (Array.isArray(parsed?.servers)) {
+      if (isEnterprise()) {
+        const servers = parsed.servers.map((s: McpServerConfig) => {
+          const { headers: _, ...rest } = s;
+          return rest;
+        });
+        return { servers };
+      }
+      return { servers: parsed.servers };
+    }
     return { servers: [] };
   } catch {
     return { servers: [] };
@@ -56,6 +67,14 @@ export function loadMcpConfig(ns: StorageNamespace): McpConfig {
 }
 
 export function saveMcpConfig(ns: StorageNamespace, config: McpConfig): void {
+  if (isEnterprise()) {
+    const servers = config.servers.map((server) => {
+      const { headers: _, ...rest } = server;
+      return rest;
+    });
+    localStorage.setItem(mcpStorageKey(ns), JSON.stringify({ servers }));
+    return;
+  }
   localStorage.setItem(mcpStorageKey(ns), JSON.stringify(config));
 }
 
@@ -118,6 +137,21 @@ class McpClient {
       accept: "application/json, text/event-stream",
       ...this.headers,
     };
+
+    if (isEnterprise()) {
+      try {
+        const token = await resolveOfficeSsoToken();
+        if (token) {
+          headers.Authorization = `Bearer ${token}`;
+        }
+      } catch (err) {
+        console.warn(
+          "[mcp] Failed to acquire Entra ID token for MCP request:",
+          err,
+        );
+      }
+    }
+
     if (this.sessionId) headers["mcp-session-id"] = this.sessionId;
 
     const id = notification ? undefined : this.nextId++;
