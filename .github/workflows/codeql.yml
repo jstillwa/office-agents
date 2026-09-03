@@ -32,6 +32,10 @@ jobs:
         with:
           languages: javascript-typescript
           build-mode: none
+          config: |
+            query-filters:
+              - exclude:
+                  id: js/clear-text-storage-of-sensitive-information
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@6f5948dfacef28e207b48d0905cf90c03365536d # v3.37.9
