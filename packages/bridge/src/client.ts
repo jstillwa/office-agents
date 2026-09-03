@@ -90,9 +90,7 @@ interface PendingState {
   snapshot: BridgeSessionSnapshot | null;
 }
 
-const BRIDGE_ENABLE_QUERY_KEY = "office_bridge";
 const BRIDGE_URL_QUERY_KEY = "office_bridge_url";
-const BRIDGE_ENABLE_STORAGE_KEY = "office-agents-bridge-enabled";
 const BRIDGE_URL_STORAGE_KEY = "office-agents-bridge-url";
 const BRIDGE_INSTANCE_PREFIX = "office-agents-bridge-instance";
 
@@ -107,23 +105,6 @@ function getStoredInstanceId(app: string): string {
   } catch {
     return createBridgeId(app).replace(/[^a-zA-Z0-9_-]/g, "_");
   }
-}
-
-function isEnabledByDefault(): boolean {
-  const params = new URLSearchParams(window.location.search);
-  const query = params.get(BRIDGE_ENABLE_QUERY_KEY);
-  if (query === "1" || query === "true") return true;
-  if (query === "0" || query === "false") return false;
-
-  try {
-    const stored = localStorage.getItem(BRIDGE_ENABLE_STORAGE_KEY);
-    if (stored === "true") return true;
-    if (stored === "false") return false;
-  } catch {
-    // Ignore storage failures.
-  }
-
-  return window.location.hostname === "localhost";
 }
 
 function resolveServerUrl(explicitUrl?: string): string {
@@ -225,7 +206,21 @@ function scheduleMicrotask(action: () => void) {
 export function startOfficeBridge(
   options: OfficeBridgeClientOptions,
 ): OfficeBridgeController {
-  const enabled = options.enabled ?? isEnabledByDefault();
+  const isDev = Boolean(
+    (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV,
+  );
+  if (!isDev) {
+    return {
+      enabled: false,
+      instanceId: "",
+      refresh: async () => null,
+      stop: () => {},
+    };
+  }
+
+  const enabled =
+    options.enabled ??
+    (typeof window !== "undefined" && window.location.hostname === "localhost");
   const instanceId = getStoredInstanceId(options.app);
 
   const state: PendingState = {

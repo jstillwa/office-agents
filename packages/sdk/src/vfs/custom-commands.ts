@@ -4,7 +4,7 @@ import type { StorageNamespace } from "../context";
 import { loadPdfDocument } from "../pdf";
 import { loadSavedConfig } from "../provider-config";
 import { loadWebConfig } from "../web/config";
-import { fetchWeb } from "../web/fetch";
+import { assertSafeUrl, fetchWeb } from "../web/fetch";
 import { searchImages, searchWeb } from "../web/search";
 import { parseFlags, parsePageRanges } from "./command-utils";
 
@@ -453,6 +453,7 @@ function createWebFetchCmd(ns: StorageNamespace): DescribedCommand {
       }
 
       try {
+        assertSafeUrl(url);
         const webConfig = loadWebConfig(ns);
         const result = await fetchWeb(
           url,

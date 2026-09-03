@@ -75,6 +75,27 @@ function parseSseForId(text: string, id: number): unknown {
   return last;
 }
 
+export function assertSafeMcpUrl(urlStr: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(urlStr);
+  } catch {
+    throw new Error(`Invalid MCP server URL: "${urlStr}"`);
+  }
+
+  const isLocal =
+    parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+  if (parsed.protocol === "https:") {
+    return;
+  }
+  if (parsed.protocol === "http:" && isLocal) {
+    return;
+  }
+  throw new Error(
+    `Insecure MCP endpoint rejected: "${urlStr}". Non-HTTPS MCP endpoints are only permitted for localhost/127.0.0.1.`,
+  );
+}
+
 class McpClient {
   private url: string;
   private headers: Record<string, string>;
@@ -82,6 +103,7 @@ class McpClient {
   private nextId = 1;
 
   constructor(url: string, headers?: Record<string, string>) {
+    assertSafeMcpUrl(url);
     this.url = url;
     this.headers = headers ?? {};
   }
@@ -221,6 +243,7 @@ export async function loadMcpTools(ns: StorageNamespace): Promise<AgentTool[]> {
   for (const server of config.servers) {
     if (server.enabled === false || !server.url) continue;
     try {
+      assertSafeMcpUrl(server.url);
       const client = new McpClient(server.url, server.headers);
       await client.initialize();
       const mcpTools = await client.listTools();
