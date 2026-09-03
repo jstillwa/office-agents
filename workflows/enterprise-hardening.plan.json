@@ -1,0 +1,432 @@
+{
+  "summary": "Owner-edited plan (2026-09-02) from run enterprise-hardening-mtklhiqp-ot3jz9. Edits: CSP delivered via _headers only with connect-src from VITE_* vars; SES eager lockdown downgraded to a spike; dev-bridge bearer token dropped in favour of origin allowlist + 127.0.0.1 bind; SSRF + MCP HTTPS guards moved from ws-05 into ws-03 so ws-05 is a focused SSO/gateway/zero-BYOK lane (M, not L); destructive-op code-string guard labelled as a guardrail, not a security control. 8 workstreams, 3 waves.",
+  "deferred": [
+    "Multi-tenant customer licensing and billing meters (YAGNI \u2014 audience is single-org internal enterprise deployment via M365 Centralized Deployment).",
+    "WebLLM / local in-browser WASM model execution (YAGNI \u2014 enterprise policy requires corporate LLM gateway routing for auditing, DLP, and compliance).",
+    "Complex OAuth PKCE desktop loopback proxy (YAGNI \u2014 production enterprise users authenticate via Office SSO Entra ID tokens; consumer OAuth is dev-only).",
+    "Real-time multi-user document collaboration in VFS (YAGNI \u2014 Office taskpanes run in isolated user browser/WebView context and native Office handles document co-authoring)."
+  ],
+  "workstreams": [
+    {
+      "findingIds": [
+        "supply-chain-ci-1",
+        "supply-chain-ci-2",
+        "supply-chain-ci-3",
+        "supply-chain-ci-5",
+        "supply-chain-ci-6",
+        "supply-chain-ci-7",
+        "supply-chain-ci-8",
+        "supply-chain-ci-9",
+        "supply-chain-ci-10",
+        "supply-chain-ci-11",
+        "deploy-manifests-4",
+        "deploy-manifests-9"
+      ],
+      "files": [
+        "package.json",
+        "pnpm-workspace.yaml",
+        ".github/workflows/ci.yml",
+        ".github/workflows/release-bridge.yml",
+        ".github/workflows/release-excel.yml",
+        ".github/workflows/release-ppt.yml",
+        ".github/workflows/release-sdk.yml",
+        ".github/workflows/release-word.yml",
+        ".github/workflows/codeql.yml",
+        ".github/dependabot.yml",
+        ".github/CODEOWNERS",
+        "SECURITY.md",
+        "scripts/release.mjs"
+      ],
+      "acceptance": [
+        "git grep -E \"actions/[a-zA-Z0-9_-]+@(v[0-9]|main)\" .github/workflows/ returns 0 matches (all GitHub Actions pinned to 40-character commit SHAs).",
+        "grep -q '\"packageManager\": \"pnpm@' package.json exits 0.",
+        "git grep -- \"--commit-dirty=true\" .github/workflows/ returns 0 matches.",
+        "test -f .github/CODEOWNERS && test -f SECURITY.md && test -f .github/dependabot.yml && test -f .github/workflows/codeql.yml exits 0.",
+        "pnpm check && pnpm test && pnpm build pass cleanly."
+      ],
+      "goal": "Harden CI/CD pipelines, supply chain governance, and release hygiene by pinning pnpm/Node versions, enforcing quality checks on tag releases, adding SAST/secret/dependency audits, generating SBOMs, and bumping manifest versions on release.",
+      "title": "CI/CD Hardening, Supply Chain Security & Toolchain Governance",
+      "steps": [
+        "Add '\"packageManager\": \"pnpm@9.15.4\"' to root package.json and standardize Node 20 across all GitHub Actions workflows (.github/workflows/*.yml).",
+        "Align pnpm lifecycle script execution policies: remove deprecated root package.json 'pnpm' block and harmonize 'allowBuilds' configuration in pnpm-workspace.yaml.",
+        "Update .github/workflows/ci.yml: declare 'permissions: contents: read', add 'pnpm audit --audit-level=high' step, add Gitleaks secret detection, and pin all actions to immutable 40-character commit SHAs with version comments.",
+        "Update .github/workflows/release-*.yml: add 'run: pnpm check && pnpm test' before build steps, remove '--commit-dirty=true' from Cloudflare Pages deploy commands, pin action commit SHAs, add CycloneDX/SPDX SBOM generation uploading JSON assets to GitHub Releases, attach dist/manifest.prod.xml to softprops/action-gh-release, and scope job permissions to least privilege.",
+        "Update scripts/release.mjs: add pre-flight validation running 'pnpm check && pnpm test && pnpm build' before version bumping; parse semver to 4-part <Version> (${version}.0) and update <Version> in both manifest.xml and manifest.prod.xml before creating release git commits.",
+        "Create .github/CODEOWNERS requiring security review for workflows and manifest files; create SECURITY.md with enterprise disclosure policies; create .github/dependabot.yml; create .github/workflows/codeql.yml for JavaScript/TypeScript SAST."
+      ],
+      "effort": "M",
+      "dependsOn": [],
+      "id": "ws-01",
+      "wave": 1
+    },
+    {
+      "files": [
+        "packages/excel/manifest.xml",
+        "packages/excel/manifest.prod.xml",
+        "packages/powerpoint/manifest.xml",
+        "packages/powerpoint/manifest.prod.xml",
+        "packages/word/manifest.xml",
+        "packages/word/manifest.prod.xml",
+        "packages/excel/vite.config.ts",
+        "packages/powerpoint/vite.config.ts",
+        "packages/word/vite.config.ts",
+        "packages/excel/public/_headers",
+        "packages/powerpoint/public/_headers",
+        "packages/word/public/_headers",
+        "packages/powerpoint/public/assets/icon-16.png",
+        "packages/powerpoint/public/assets/icon-32.png",
+        "packages/powerpoint/public/assets/icon-64.png",
+        "packages/powerpoint/public/assets/icon-80.png",
+        "packages/word/public/assets/icon-16.png",
+        "packages/word/public/assets/icon-32.png",
+        "packages/word/public/assets/icon-64.png",
+        "packages/word/public/assets/icon-80.png",
+        "packages/excel/src/commands/commands.ts"
+      ],
+      "effort": "M",
+      "title": "Office Add-in Manifests, Enterprise Base URL Parameterisation & Static CSP",
+      "goal": "Configure M365 Centralized Deployment manifests with Office SSO declarations, parameterize deployment base URLs, add missing icon assets, enforce CSP and frame-ancestors headers, and clean legacy commands.",
+      "dependsOn": [],
+      "findingIds": [
+        "deploy-manifests-1",
+        "deploy-manifests-2",
+        "deploy-manifests-3",
+        "deploy-manifests-5",
+        "deploy-manifests-6",
+        "deploy-manifests-7",
+        "deploy-manifests-8",
+        "deploy-manifests-10",
+        "deploy-manifests-11",
+        "secrets-auth-8",
+        "web-security-3",
+        "observability-ops-8"
+      ],
+      "acceptance": [
+        "pnpm validate exits 0 for all Excel, PowerPoint, and Word dev and prod manifests.",
+        "git grep -i \"contoso.com\" packages/*/manifest.prod.xml returns 0 matches.",
+        "grep -q \"WebApplicationInfo\" packages/excel/manifest.prod.xml && grep -q \"WebApplicationInfo\" packages/powerpoint/manifest.prod.xml && grep -q \"WebApplicationInfo\" packages/word/manifest.prod.xml exits 0.",
+        "test -f packages/powerpoint/public/assets/icon-32.png && test -f packages/word/public/assets/icon-32.png exits 0.",
+        "git grep -l 'http-equiv=\"Content-Security-Policy\"' packages/*/src/ returns 0 matches; test -f packages/excel/dist/_headers after build and grep -q frame-ancestors on it exits 0.",
+        "pnpm check && pnpm test && pnpm build pass cleanly."
+      ],
+      "steps": [
+        "Fix PowerPoint manifest GUID collision: generate a distinct UUID for packages/powerpoint/manifest.xml so dev sideloading does not overwrite production tenant deployment.",
+        "Establish public/assets/ icon assets (16, 32, 64, 80px) in packages/powerpoint and packages/word replicating packages/excel/public/assets/, and ensure viteStaticCopy bundles them to dist/assets/.",
+        "In packages/*/vite.config.ts, read process.env.VITE_DEPLOY_URL with fallback to existing URLs; interpolate into manifest transforms and static copy. In define, inject __BUILD_INFO__ containing version, git commit, build timestamp, and build mode.",
+        "In packages/*/manifest.prod.xml, declare <WebApplicationInfo> under <VersionOverrides> specifying Entra ID client ID, Resource URI (api://{HOST}/{CLIENT_ID}), and access_as_user scope. Replace placeholder Contoso and personal developer identifiers with enterprise configurable metadata, remove contoso.com from AppDomains, and point SupportUrl to internal enterprise support.",
+        "In packages/excel/manifest.xml and manifest.prod.xml, declare <Requirements><Sets><Set Name=\"ExcelApi\" MinVersion=\"1.7\"/></Sets></Requirements>.",
+        "In packages/excel/src/commands/commands.ts, remove dead Outlook mailbox notification code and invoke event.completed() directly.",
+        "Update viteStaticCopy in vite.config.ts so dev manifest.xml is only copied when dev === true, emitting a single clean manifest.xml derived from manifest.prod.xml in production builds.",
+        "Create public/_headers for all three apps (Cloudflare Pages). frame-ancestors MUST live here (ignored in <meta>). Generate the file in vite.config.ts from VITE_* vars: frame-ancestors 'self' https://*.office.com https://*.officeapps.live.com https://*.sharepoint.com https://*.office365.com; default-src 'self'; script-src 'self' https://appsforoffice.microsoft.com; connect-src 'self' https://appsforoffice.microsoft.com https://*.office.com https://*.officeapps.live.com ${VITE_GATEWAY_URL} ${VITE_MCP_HOSTS}; object-src 'none'. Plus X-Content-Type-Options: nosniff, Referrer-Policy: strict-origin-when-cross-origin. No <meta http-equiv=CSP> tags."
+      ],
+      "id": "ws-02",
+      "wave": 1
+    },
+    {
+      "id": "ws-03",
+      "goal": "Restrict the dev bridge to localhost origins and dev builds (no bearer token; origin allowlist + 127.0.0.1 bind is sufficient for a dev tool), harden protocol type guards, and add SSRF validation to web fetch/search plus HTTPS enforcement for non-localhost MCP endpoints.",
+      "steps": [
+        "Move @office-agents/bridge from 'dependencies' to 'devDependencies' in packages/{excel,word,powerpoint}/package.json.",
+        "In packages/bridge/src/client.ts, remove '?office_bridge=1' query and localStorage auto-enablement fallbacks in production builds, strictly guarding client bridge attachment behind import.meta.env.DEV.",
+        "In packages/bridge/src/server.ts, remove wildcard 'Access-Control-Allow-Origin: *'. Restrict HTTP and WebSocket upgrade origins strictly to localhost Office taskpanes (https://localhost:3000, 3001, 3002).",
+        "In packages/bridge/src/server.ts, bind HTTPS/WS listener to 127.0.0.1 only (not 0.0.0.0).",
+        "Strengthen protocol type guards in packages/bridge/src/protocol.ts: ensure isBridgeHelloMessage validates value.snapshot?.sessionId and documentId strings; ensure isBridgeInvokeMessage validates requestId and method strings before dispatch.",
+        "In packages/sdk/src/web/fetch.ts and packages/sdk/src/vfs/custom-commands.ts, add one shared assertSafeUrl(url) helper: protocol must be https:, reject loopback (127.0.0.0/8, ::1, localhost), link-local/cloud metadata (169.254.0.0/16), and RFC 1918 ranges. Reuse for web-search result fetches.",
+        "In packages/sdk/src/mcp/index.ts, reject non-https MCP endpoints unless host is localhost/127.0.0.1."
+      ],
+      "acceptance": [
+        "git grep '\"Access-Control-Allow-Origin\": \"*\"' packages/bridge/src/ returns 0 matches.",
+        "grep -q '\"@office-agents/bridge\"' packages/excel/package.json && grep -A 25 '\"dependencies\"' packages/excel/package.json | grep -v 'office-agents/bridge' exits 0 (confirming bridge is devDependency only).",
+        "Unit test packages/sdk/tests/web-fetch-ssrf.test.ts passes: 127.0.0.1, localhost, 169.254.169.254, 10.x/172.16.x/192.168.x and http: URLs are rejected by assertSafeUrl.",
+        "git grep -n 'Bearer' packages/bridge/src/ returns 0 matches.",
+        "pnpm check && pnpm test && pnpm build pass cleanly."
+      ],
+      "findingIds": [
+        "sandbox-exec-8",
+        "web-security-1",
+        "observability-ops-2",
+        "type-safety-errors-8",
+        "web-security-4",
+        "web-security-5"
+      ],
+      "wave": 1,
+      "files": [
+        "packages/bridge/src/server.ts",
+        "packages/bridge/src/client.ts",
+        "packages/bridge/src/protocol.ts",
+        "packages/excel/package.json",
+        "packages/word/package.json",
+        "packages/powerpoint/package.json",
+        "packages/sdk/src/web/fetch.ts",
+        "packages/sdk/src/vfs/custom-commands.ts",
+        "packages/sdk/src/mcp/index.ts"
+      ],
+      "dependsOn": [],
+      "title": "Network Trust Boundaries: Dev Bridge Origin Isolation + Outbound SSRF/HTTPS Guards",
+      "effort": "M"
+    },
+    {
+      "id": "ws-04",
+      "steps": [
+        "Create packages/sdk/src/telemetry.ts defining ToolAuditEvent (toolCallId, toolName, argsHash, documentId, userId, timestamp, durationMs, status, errorMessage), TelemetryEvent, TelemetrySink, and ToolPolicyConfig (allowedTools, deniedTools, allowDestructiveOps). Export from packages/sdk/src/index.ts.",
+        "In packages/sdk/src/runtime.ts, wrap AgentRuntime.tools with wrapToolsWithPolicyAndAudit intercepting tool.execute: enforce per-build allow/deny policy, compute SHA-256 parameter hash via crypto.subtle.digest, measure execution duration with performance.now(), and emit ToolAuditEvent to injected telemetrySink.",
+        "Add optional getUserId?: () => Promise<string | null> to RuntimeAdapter in packages/sdk/src/runtime.ts and resolve userId during AgentRuntime.init(), including it in all emitted audit records.",
+        "SPIKE (not a mandate): evaluate calling ensureLockdown() eagerly at taskpane init vs. current lazy first-sandboxedEval call. Known risk: SES lockdown() before Office.onReady breaks Office.js initialisation. Acceptance is a documented go/no-go note in packages/sdk/src/lockdown.ts header comment; keep lazy lockdown as default unless the spike proves eager is safe in Excel/Word/PPT desktop + web.",
+        "In packages/sdk/src/context.ts, enforce path containment in AgentContext.writeFile: resolve destination paths and restrict writes strictly to /home/user/ (rejecting writes targeting /skills/ or system prompt files).",
+        "In packages/sdk/src/tools/edit-file.ts, fix string replacement corruption by replacing text.replace(old_text, new_text) with text.replace(old_text, () => new_text) to prevent dollar sign replacement template interpretation.",
+        "In packages/sdk/src/tools/bash.ts, align tool description with actual capabilities and policy-gate custom commands.",
+        "In packages/sdk/src/tools/types.ts, type defineTool parameters with TObject to eliminate double 'as unknown as AgentTool' casting.",
+        "In AgentRuntime.deleteFile(name), update error state on catch instead of desynchronizing UI uploads. Remove raw console.log of agent events in runtime.ts:230."
+      ],
+      "dependsOn": [],
+      "findingIds": [
+        "sandbox-exec-1",
+        "sandbox-exec-2",
+        "sandbox-exec-7",
+        "sandbox-exec-10",
+        "sandbox-exec-12",
+        "observability-ops-1",
+        "observability-ops-3",
+        "observability-ops-4",
+        "observability-ops-10",
+        "type-safety-errors-7",
+        "type-safety-errors-9",
+        "type-safety-errors-11"
+      ],
+      "acceptance": [
+        "git grep \"console.log('\\\\[Runtime\\\\] Agent event:'\" packages/sdk/src/runtime.ts returns 0 matches.",
+        "New unit tests in packages/sdk/tests/policy-audit.test.ts pass, validating tool policy denies unlisted tools, calculates valid SHA-256 parameter hashes, and logs audit events to injected sink.",
+        "Unit test in packages/sdk/tests/tools-edit-file.test.ts passes, verifying literal dollar signs (e.g. =$A$1+$B$1) are preserved without regex token expansion.",
+        "pnpm check && pnpm test && pnpm build pass cleanly."
+      ],
+      "goal": "Establish SDK core runtime tool policy enforcement, structured audit logging, telemetry interfaces, eager SES lockdown, VFS sandbox containment, and tool definition type safety.",
+      "files": [
+        "packages/sdk/src/telemetry.ts",
+        "packages/sdk/src/runtime.ts",
+        "packages/sdk/src/lockdown.ts",
+        "packages/sdk/src/sandbox.ts",
+        "packages/sdk/src/context.ts",
+        "packages/sdk/src/tools/types.ts",
+        "packages/sdk/src/tools/bash.ts",
+        "packages/sdk/src/tools/edit-file.ts",
+        "packages/sdk/src/index.ts"
+      ],
+      "wave": 1,
+      "effort": "M",
+      "title": "SDK Core Runtime: Tool Execution Policy, Sandboxing & Telemetry Seam"
+    },
+    {
+      "goal": "Implement Office SSO Entra ID token acquisition for corporate LLM gateway routing, enforce zero-BYOK credential storage in enterprise mode, secure MCP/web tools against SSRF, and lock down the settings UI.",
+      "files": [
+        "packages/sdk/src/provider-config.ts",
+        "packages/sdk/src/runtime.ts",
+        "packages/sdk/src/oauth/index.ts",
+        "packages/sdk/src/mcp/index.ts",
+        "packages/sdk/src/web/config.ts",
+        "packages/sdk/src/web/search.ts",
+        "packages/sdk/src/storage/db.ts",
+        "packages/core/src/chat/settings-panel.svelte",
+        "packages/core/src/chat/app-adapter.ts"
+      ],
+      "dependsOn": [
+        "ws-01",
+        "ws-03",
+        "ws-04"
+      ],
+      "title": "Enterprise SSO, Corporate LLM Gateway & Zero-BYOK Storage Lockdown",
+      "id": "ws-05",
+      "wave": 2,
+      "steps": [
+        "In packages/sdk/src/provider-config.ts, introduce isEnterprise check (import.meta.env.VITE_APP_MODE === 'enterprise'). In enterprise mode, disable localStorage persistence of apiKey in saveConfig and loadSavedConfig. Force useProxy = false and route model calls directly to the enterprise corporate gateway. Validate config object shape and apiType before casting.",
+        "In packages/sdk/src/runtime.ts, integrate Office SSO token resolver: when running in enterprise mode or authMethod is 'sso', getActiveApiKey calls OfficeRuntime.auth.getAccessToken({ allowSignInPrompt: true }) to obtain the Entra ID bearer token, caching until expiry and refreshing transparently before streamFn invocations or upon 401 response. Treat SSO mode as configured in sendMessage without requiring a saved apiKey.",
+        "In streamFn (runtime.ts:469-476), when targeting enterprise gateway with Entra ID SSO, pass token via options.headers: { Authorization: `Bearer ${token}` } and omit options.apiKey so pi-ai does not emit conflicting x-api-key headers.",
+        "In packages/sdk/src/oauth/index.ts, gate consumer OAuth flows behind dev-only mode; in enterprise mode, purge legacy oauth-credentials key and disallow consumer OAuth. Add 'noopener,noreferrer' to any OAuth window.open calls.",
+        "In packages/sdk/src/mcp/index.ts, eliminate plaintext header persistence in enterprise mode, and inject active Entra ID bearer token into McpClient.rpc headers.",
+        "In packages/core/src/chat/settings-panel.svelte, add enterprise lockdown mode (isEnterprise): hide provider selector, API key input, OAuth login buttons, custom base URL, and search API keys. Display read-only corporate gateway status, model name, and SSO user identity; bypass nextApiKey validation requirement.",
+        "Remove debug console.log calls leaking document metadata in packages/sdk/src/storage/db.ts, and update storage failure catch handlers in runtime.ts:576 to set state.error and notify telemetrySink."
+      ],
+      "effort": "M",
+      "acceptance": [
+        "In enterprise mode (VITE_APP_MODE=enterprise), verifying zero localStorage writes for apiKey and oauth-credentials.",
+        "Unit test in packages/sdk/tests/sso-gateway.test.ts passes: mocks OfficeRuntime.auth.getAccessToken, verifies runtime acquires Entra bearer token, injects Authorization: Bearer <token> into stream headers, and suppresses x-api-key headers.",
+        "pnpm check && pnpm test && pnpm build pass cleanly."
+      ],
+      "findingIds": [
+        "secrets-auth-1",
+        "secrets-auth-2",
+        "secrets-auth-3",
+        "secrets-auth-4",
+        "secrets-auth-5",
+        "secrets-auth-6",
+        "secrets-auth-7",
+        "secrets-auth-9",
+        "web-security-8",
+        "web-security-9",
+        "web-security-10",
+        "type-safety-errors-10",
+        "type-safety-errors-4",
+        "observability-ops-5"
+      ]
+    },
+    {
+      "goal": "Fortify chat UI resilience against runtime render crashes, eliminate DOMPurify mXSS risks and image tracking beacons, wrap adapter extensions in granular boundaries, and add diagnostic bundle export.",
+      "steps": [
+        "In packages/core/src/chat/markdown.ts, replace template innerHTML re-serialization with DOMPurify.addHook('afterSanitizeAttributes') setting target=\"_blank\" and rel=\"noopener noreferrer\". Restrict ALLOWED_URI_REGEXP to https: and relative fragments (#). Always wrap highlightCode output with sanitizeRenderedHtml.",
+        "In packages/core/src/chat/markdown-content.svelte, verify link.protocol === 'https:' before allowing external navigation; default text = '' in Props and guard currentText = text ?? '' against undefined length crashes.",
+        "In packages/core/src/chat/message-list.svelte, narrow renderPart explicitly for text parts and render an inline muted fallback badge for unsupported part types rather than passing undefined to MarkdownContent.",
+        "In packages/core/src/chat/tool-call-block.svelte, wrap ToolExtras in a localized <svelte:boundary> displaying an inline muted badge on render errors. In chat-interface.svelte, wrap HeaderExtras and SelectionIndicator in localized boundaries.",
+        "In packages/core/src/chat/chat-controller.ts, attach .catch() handler to constructor this.#runtime.init(); register window error and unhandledrejection event listeners that dispatch uncaught exceptions to runtime error state and telemetrySink; implement exportDiagnostics() aggregating host platform, session stats, and recent errors.",
+        "In packages/core/src/chat/error-boundary.svelte, capture error.stack and Office host diagnostics, emit to telemetrySink, and add a 'Copy Error Details' clipboard button. In files-panel.svelte, notify users of deletion failures."
+      ],
+      "id": "ws-06",
+      "effort": "M",
+      "wave": 2,
+      "files": [
+        "packages/core/src/chat/markdown.ts",
+        "packages/core/src/chat/markdown-content.svelte",
+        "packages/core/src/chat/message-list.svelte",
+        "packages/core/src/chat/tool-call-block.svelte",
+        "packages/core/src/chat/chat-interface.svelte",
+        "packages/core/src/chat/chat-controller.ts",
+        "packages/core/src/chat/error-boundary.svelte",
+        "packages/core/src/chat/files-panel.svelte",
+        "packages/sdk/src/message-utils.ts"
+      ],
+      "acceptance": [
+        "Unit tests in packages/core/tests/markdown-security.test.ts pass, verifying DOMPurify hook sanitization, code block HTML sanitization, and neutralization of unsafe URI protocols.",
+        "Unit test verifying unknown MessagePart union types render fallback indicator without throwing in message-list.svelte.",
+        "Unit test verifying ChatController constructor attaches rejection handler to runtime.init().",
+        "pnpm check && pnpm test && pnpm build pass cleanly."
+      ],
+      "title": "Core Chat UI Resilience, Markdown Security & Diagnostic Export",
+      "dependsOn": [
+        "ws-04"
+      ],
+      "findingIds": [
+        "web-security-6",
+        "web-security-7",
+        "type-safety-errors-1",
+        "type-safety-errors-3",
+        "type-safety-errors-5",
+        "type-safety-errors-12",
+        "observability-ops-6",
+        "observability-ops-7",
+        "observability-ops-9"
+      ]
+    },
+    {
+      "findingIds": [
+        "sandbox-exec-3",
+        "sandbox-exec-5",
+        "sandbox-exec-6",
+        "sandbox-exec-9",
+        "sandbox-exec-11",
+        "type-safety-errors-2",
+        "type-safety-errors-6",
+        "test-coverage-7",
+        "test-coverage-8",
+        "test-coverage-9",
+        "test-coverage-10",
+        "test-coverage-11",
+        "test-coverage-12"
+      ],
+      "acceptance": [
+        "pnpm --filter @office-agents/excel test passes with all new set-cell-range, read-range, and eval-officejs tests.",
+        "pnpm --filter @office-agents/word test passes with get-document-text and execute-office-js tests.",
+        "pnpm --filter @office-agents/powerpoint test passes with edit-slide-xml and execute-office-js tests.",
+        "git grep \"sandboxedEval(params.code, { context, Word, Office\" packages/word/ returns 0 matches.",
+        "pnpm check && pnpm test && pnpm build pass cleanly."
+      ],
+      "goal": "Harden Office host tools against data destruction, token leakage, DoS hangs, and type crashes, and build shared Office.js mock test suites across Excel, Word, and PowerPoint packages.",
+      "id": "ws-07",
+      "effort": "L",
+      "files": [
+        "packages/excel/src/lib/excel/tracked-context.ts",
+        "packages/excel/src/lib/excel/api.ts",
+        "packages/excel/src/lib/tools/eval-officejs.ts",
+        "packages/excel/src/lib/tools/set-cell-range.ts",
+        "packages/excel/src/lib/tools/get-cell-ranges.ts",
+        "packages/excel/src/lib/tools/get-range-as-csv.ts",
+        "packages/excel/src/lib/tools/types.ts",
+        "packages/excel/src/lib/adapter.ts",
+        "packages/excel/tests/set-cell-range.test.ts",
+        "packages/excel/tests/read-range-tools.test.ts",
+        "packages/excel/tests/eval-officejs.test.ts",
+        "packages/word/src/lib/tools/execute-office-js.ts",
+        "packages/word/src/lib/tools/get-document-text.ts",
+        "packages/word/src/lib/tools/types.ts",
+        "packages/word/tests/get-document-text.test.ts",
+        "packages/word/tests/execute-office-js.test.ts",
+        "packages/powerpoint/src/lib/tools/execute-office-js.ts",
+        "packages/powerpoint/src/lib/tools/edit-slide-xml.ts",
+        "packages/powerpoint/src/lib/tools/edit-slide-chart.ts",
+        "packages/powerpoint/src/lib/tools/edit-slide-master.ts",
+        "packages/powerpoint/src/lib/tools/types.ts",
+        "packages/powerpoint/src/lib/adapter.ts",
+        "packages/powerpoint/src/lib/pptx/slide-zip.ts",
+        "packages/powerpoint/src/lib/vfs/custom-commands.ts",
+        "packages/powerpoint/tests/edit-slide-xml.test.ts",
+        "packages/powerpoint/tests/execute-office-js.test.ts",
+        "packages/core/tests/helpers/office-mock.ts"
+      ],
+      "title": "Office App Tools Hardening, Sandbox Isolation & Mock Test Suites",
+      "wave": 2,
+      "steps": [
+        "Create shared Office mock test harness in packages/core/tests/helpers/office-mock.ts using Vitest vi.fn(): mock globalThis.OfficeExtension.Error and provide mockOfficeHost(name, context) for Excel.run, Word.run, and PowerPoint.run in Node/happy-dom.",
+        "In packages/word/src/lib/tools/execute-office-js.ts and packages/powerpoint/src/lib/tools/execute-office-js.ts, remove global Office object injection into sandboxedEval; expose strictly scoped application contexts (Word.RequestContext / PowerPoint.RequestContext) to prevent Entra ID SSO token access.",
+        "In eval_officejs (Excel) and execute_office_js (Word), add a destructive-op guardrail (allowDestructiveOps: false by default) that rejects code containing .delete()/.clear()/worksheet deletion. This is a guardrail against accidental LLM behaviour, NOT a security control (trivially bypassed by string concatenation); the real controls are the ws-04 tool allow/deny policy and audit log. Add a code comment saying so. Wrap execution in a 30s Promise.race timeout.",
+        "In packages/powerpoint/src/lib/pptx/slide-zip.ts safeRun, add 30s timeout to desktop PowerPoint.run. In slide XML tools, replace raw DOMParser constructor injection with safe parseXml(xmlString) helper forcing 'application/xml'.",
+        "In packages/powerpoint/src/lib/vfs/custom-commands.ts, route edit-slide-xml CLI through the same validation, path restrictions, and script size bounds as the edit_slide_xml tool.",
+        "In packages/excel/src/lib/excel/tracked-context.ts, eliminate 25 any casts: replace private property access in getCleanAddr with explicit range.address loading, replace object identity Map in createTrackedWorksheets with a sheet-name string map, and batch pending sheet ID loads into a single context.sync().",
+        "In packages/excel/src/lib/tools/types.ts and packages/powerpoint/src/lib/tools/types.ts, verify parsed JSON is a non-null object (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) before assigning dirty ranges or modified slide index.",
+        "Add comprehensive unit test suites using the Office mock helper: packages/excel/tests/set-cell-range.test.ts (overwrite protection, 2D range expansion, dirty tracking), packages/excel/tests/read-range-tools.test.ts (range retrieval, CSV escaping), packages/word/tests/get-document-text.test.ts (slicing, formatting, list items), packages/powerpoint/tests/edit-slide-xml.test.ts (bounds, XML sanitization), and escape hatch tests across all three packages."
+      ],
+      "dependsOn": [
+        "ws-04"
+      ]
+    },
+    {
+      "id": "ws-08",
+      "title": "SDK MCP Client & Runtime Lifecycle Test Suites, Verification & Runbook",
+      "wave": 3,
+      "acceptance": [
+        "pnpm --filter @office-agents/sdk test passes with 100% test success across all existing and new test suites.",
+        "test -f docs/ENTERPRISE_DEPLOYMENT.md exits 0.",
+        "pnpm check && pnpm test && pnpm build pass across all workspace packages."
+      ],
+      "dependsOn": [
+        "ws-04",
+        "ws-05",
+        "ws-07"
+      ],
+      "findingIds": [
+        "test-coverage-1",
+        "test-coverage-2",
+        "test-coverage-3",
+        "test-coverage-4",
+        "test-coverage-5",
+        "test-coverage-6"
+      ],
+      "files": [
+        "packages/sdk/tests/mcp-sse.test.ts",
+        "packages/sdk/tests/mcp-client.test.ts",
+        "packages/sdk/tests/tools-edit-file.test.ts",
+        "packages/sdk/tests/runtime-lifecycle.test.ts",
+        "packages/sdk/tests/runtime-tool-events.test.ts",
+        "packages/sdk/tests/runtime-context.test.ts",
+        "docs/ENTERPRISE_DEPLOYMENT.md"
+      ],
+      "effort": "M",
+      "steps": [
+        "Add packages/sdk/tests/mcp-sse.test.ts: mock fetch SSE responses, testing single JSON-RPC messages, multiline chunks, comments/keepalives, matching request IDs, and error message propagation.",
+        "Add packages/sdk/tests/mcp-client.test.ts: test mcp-session-id capture and header forwarding, initialize handshake and notification dispatch without IDs, tool wrapping across text/image/structuredContent, and graceful server error recovery.",
+        "Add packages/sdk/tests/tools-edit-file.test.ts: test mutual exclusivity between content and edits, full file rewrites, path resolution under /home/user/uploads/, countOccurrences validation, atomic edit rollback on intermediate failure, and literal dollar sign preservation.",
+        "Add packages/sdk/tests/runtime-lifecycle.test.ts: simulate Agent events (message_start, message_update, message_end with stopReason 'error'), verifying streaming message purging, error state updates, and agent_end session + VFS snapshot persistence in IndexedDB.",
+        "Add packages/sdk/tests/runtime-tool-events.test.ts: test tool_execution_start part state transition, multi-modal image block extraction, and follow-mode gating (confirming onToolResult is suppressed on error or when followMode is false).",
+        "Add packages/sdk/tests/runtime-context.test.ts: test prompt context assembly (<doc_context> XML injection, nameMap tracking, <attachments> formatting) and expired OAuth refresh logic.",
+        "Author docs/ENTERPRISE_DEPLOYMENT.md providing the enterprise deployment runbook: Entra ID app registration guide, M365 Centralized Deployment manifest upload steps, corporate gateway URL and header configuration, tool policy allow/deny configuration, and support diagnostic bundle collection."
+      ],
+      "goal": "Complete end-to-end SDK MCP client and runtime lifecycle test suites, verify whole-system quality gates, and produce enterprise IT deployment and verification documentation."
+    }
+  ]
+}
