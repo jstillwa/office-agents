@@ -1,0 +1,4 @@
+/*
+  Content-Security-Policy: frame-ancestors 'self' https://*.office.com https://*.officeapps.live.com https://*.sharepoint.com https://*.office365.com; default-src 'self'; script-src 'self' https://appsforoffice.microsoft.com; connect-src 'self' https://appsforoffice.microsoft.com https://*.office.com https://*.officeapps.live.com; object-src 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
