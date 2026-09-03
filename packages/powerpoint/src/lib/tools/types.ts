@@ -37,6 +37,13 @@ export function defineTool<T extends TObject>(
 
     try {
       const parsed = JSON.parse(first.text);
+      if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        Array.isArray(parsed)
+      ) {
+        return result;
+      }
       if (parsed.error) return result;
 
       const slideIndex = modifiedSlide(params);

@@ -2,7 +2,7 @@ import type { AgentContext } from "@office-agents/core";
 import { sandboxedEval } from "@office-agents/core";
 import { Type } from "@sinclair/typebox";
 import { safeRun, withSlideZip } from "../pptx/slide-zip";
-import { escapeXml } from "../pptx/xml-utils";
+import { escapeXml, parseXml } from "../pptx/xml-utils";
 import { defineTool, toolError, toolSuccess } from "./types";
 
 /* global PowerPoint */
@@ -42,11 +42,11 @@ export function createEditSlideChartTool(ctx: AgentContext) {
             return sandboxedEval(params.code, {
               ...args,
               escapeXml,
+              parseXml,
               readFile: (path: string) => ctx.readFile(path),
               readFileBuffer: (path: string) => ctx.readFileBuffer(path),
               writeFile: (path: string, content: string | Uint8Array) =>
                 ctx.writeFile(path, content),
-              DOMParser,
               XMLSerializer,
             });
           });

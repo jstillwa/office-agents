@@ -51,7 +51,12 @@ export function createPowerPointAdapter(): AppAdapter {
       if (isError) return;
       try {
         const parsed = JSON.parse(result);
-        if (typeof parsed._modifiedSlide === "number") {
+        if (
+          typeof parsed === "object" &&
+          parsed !== null &&
+          !Array.isArray(parsed) &&
+          typeof parsed._modifiedSlide === "number"
+        ) {
           navigateToSlide(parsed._modifiedSlide).catch(console.error);
         }
       } catch {

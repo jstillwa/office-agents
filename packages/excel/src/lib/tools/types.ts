@@ -42,6 +42,13 @@ export function defineTool<T extends TObject>(
 
     try {
       const parsed = JSON.parse(text);
+      if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        Array.isArray(parsed)
+      ) {
+        return result;
+      }
       if (parsed.error) return result;
 
       const dirtyRanges = dirtyTracking.getRanges(params, parsed);

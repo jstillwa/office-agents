@@ -3,7 +3,7 @@ import { sandboxedEval } from "@office-agents/core";
 import { Type } from "@sinclair/typebox";
 import { cleanupSlideMasters } from "../pptx/master-cleanup";
 import { safeRun, withSlideZip } from "../pptx/slide-zip";
-import { escapeXml } from "../pptx/xml-utils";
+import { escapeXml, parseXml } from "../pptx/xml-utils";
 import { defineTool, toolError, toolSuccess } from "./types";
 
 /* global PowerPoint */
@@ -44,11 +44,11 @@ export function createEditSlideMasterTool(ctx: AgentContext) {
               return sandboxedEval(params.code, {
                 ...args,
                 escapeXml,
+                parseXml,
                 readFile: (path: string) => ctx.readFile(path),
                 readFileBuffer: (path: string) => ctx.readFileBuffer(path),
                 writeFile: (path: string, content: string | Uint8Array) =>
                   ctx.writeFile(path, content),
-                DOMParser,
                 XMLSerializer,
               });
             },
