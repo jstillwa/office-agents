@@ -89,6 +89,20 @@ export {
   saveSession,
   saveVfsFiles,
 } from "./storage";
+// Telemetry & Policy
+export {
+  computeArgsHash,
+  emitTelemetry,
+  isToolAllowed,
+  type TelemetryEvent,
+  type TelemetrySink,
+  type ToolAuditEvent,
+  type ToolAuditStatus,
+  type ToolPolicyConfig,
+  type WrapToolsOptions,
+  wrapCustomCommandWithPolicy,
+  wrapToolsWithPolicyAndAudit,
+} from "./telemetry";
 // Tools
 export { createBashTool } from "./tools/bash";
 export { createEditFileTool } from "./tools/edit-file";

@@ -1,3 +1,28 @@
+/**
+ * SPIKE EVALUATION: Eager Lockdown vs. Lazy Lockdown
+ *
+ * Decision: NO-GO for eager ensureLockdown() at taskpane init. Keep lazy lockdown as default.
+ *
+ * Evaluation & Findings:
+ * 1. SES `lockdown()` freezes intrinsic JavaScript prototypes (Object.prototype,
+ *    Function.prototype, Array.prototype, etc.).
+ * 2. Office.js initialization (prior to Office.onReady / Office.initialize resolution)
+ *    relies on mutating prototypes and adding dynamic validation stubs and helper properties
+ *    to Function and Object constructors across desktop WebView2 (Windows), WebKit (macOS),
+ *    and Office on the web frames.
+ * 3. Eager execution of lockdown() before Office.onReady() completes leads to fatal
+ *    TypeError exceptions ("Cannot add property ... object is not extensible" or
+ *    "Cannot assign to read-only property") during Office.js API registration, breaking
+ *    the host-to-taskpane handshake and causing the add-in taskpane to fail to load.
+ * 4. Desktop platforms also exhibit platform-specific timing where scripts injected by
+ *    the host require dynamic reflection before the runtime stabilizes.
+ *
+ * Recommendation:
+ * Keep lazy lockdown as default. Calling ensureLockdown() lazily upon the first
+ * sandboxedEval call ensures Office.js finishes initialization safely, while still
+ * hardening the JS realm before any untrusted user/model-generated code evaluates.
+ */
+
 import "ses";
 
 /* global lockdown */
