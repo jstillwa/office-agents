@@ -287,10 +287,15 @@ export function toBridgeError(error: unknown): BridgeError {
 export function isBridgeHelloMessage(
   value: unknown,
 ): value is BridgeHelloMessage {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<BridgeHelloMessage>;
   return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as BridgeHelloMessage).type === "hello"
+    candidate.type === "hello" &&
+    typeof candidate.snapshot === "object" &&
+    candidate.snapshot !== null &&
+    typeof candidate.snapshot.sessionId === "string" &&
+    candidate.snapshot.sessionId.length > 0 &&
+    typeof candidate.snapshot.documentId === "string"
   );
 }
 
@@ -317,10 +322,14 @@ export function isBridgeEventMessage(
 export function isBridgeInvokeMessage(
   value: unknown,
 ): value is BridgeInvokeMessage {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<BridgeInvokeMessage>;
   return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as BridgeInvokeMessage).type === "invoke"
+    candidate.type === "invoke" &&
+    typeof candidate.requestId === "string" &&
+    candidate.requestId.length > 0 &&
+    typeof candidate.method === "string" &&
+    candidate.method.length > 0
   );
 }
 

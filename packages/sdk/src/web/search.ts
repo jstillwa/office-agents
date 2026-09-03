@@ -1,3 +1,4 @@
+import { assertSafeUrl } from "./fetch";
 import type {
   ImageSearchOptions,
   ImageSearchProvider,
@@ -276,7 +277,16 @@ export async function searchWeb(
   providerId?: string,
 ): Promise<SearchResult[]> {
   const provider = getSearchProvider(providerId);
-  return provider.search(query, options, context);
+  const results = await provider.search(query, options, context);
+  return results.filter((result) => {
+    if (!result.href) return false;
+    try {
+      assertSafeUrl(result.href);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
 
 const serperImageProvider: ImageSearchProvider = {
@@ -376,5 +386,14 @@ export async function searchImages(
   providerId?: string,
 ): Promise<ImageSearchResult[]> {
   const provider = getImageSearchProvider(providerId);
-  return provider.searchImages(query, options, context);
+  const results = await provider.searchImages(query, options, context);
+  return results.filter((result) => {
+    if (!result.imageUrl) return false;
+    try {
+      assertSafeUrl(result.imageUrl);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }

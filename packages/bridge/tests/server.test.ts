@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
+import https from "node:https";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { requestJson } from "../src/http-client";
@@ -10,10 +11,12 @@ import {
   createBridgeServer,
   type BridgeServerHandle,
 } from "../src/server";
-import type {
-  BridgeResponseMessage,
-  BridgeSessionSnapshot,
-  BridgeWireMessage,
+import {
+  isBridgeHelloMessage,
+  isBridgeInvokeMessage,
+  type BridgeResponseMessage,
+  type BridgeSessionSnapshot,
+  type BridgeWireMessage,
 } from "../src/protocol";
 
 const silentLogger = {
@@ -312,5 +315,163 @@ describe("bridge server", () => {
     socket.close();
 
     await expect(invocation).rejects.toThrow(/disconnected/i);
+  });
+
+  it("restricts HTTP requests by origin and does not emit wildcard CORS", async () => {
+    const tls = createTempTlsMaterial();
+    tlsDir = tls.dir;
+    const port = await getFreePort();
+    server = await createBridgeServer({
+      port,
+      certPath: tls.certPath,
+      keyPath: tls.keyPath,
+      logger: silentLogger,
+    });
+
+    // Request from allowed origin https://localhost:3000
+    const allowedRes = await new Promise<{ statusCode?: number; headers: Record<string, string | string[] | undefined> }>((resolve, reject) => {
+      const req = https.request(
+        `${server!.httpUrl}/health`,
+        {
+          method: "GET",
+          headers: { Origin: "https://localhost:3000" },
+          rejectUnauthorized: false,
+        },
+        (res) => {
+          res.resume();
+          res.on("end", () => resolve({ statusCode: res.statusCode, headers: res.headers }));
+        },
+      );
+      req.on("error", reject);
+      req.end();
+    });
+
+    expect(allowedRes.statusCode).toBe(200);
+    expect(allowedRes.headers["access-control-allow-origin"]).toBe("https://localhost:3000");
+    expect(allowedRes.headers["access-control-allow-origin"]).not.toBe("*");
+
+    // Request from disallowed origin https://evil.com is rejected with 403 Forbidden
+    const forbiddenRes = await new Promise<{ statusCode?: number; headers: Record<string, string | string[] | undefined> }>((resolve, reject) => {
+      const req = https.request(
+        `${server!.httpUrl}/health`,
+        {
+          method: "GET",
+          headers: { Origin: "https://evil.com" },
+          rejectUnauthorized: false,
+        },
+        (res) => {
+          res.resume();
+          res.on("end", () => resolve({ statusCode: res.statusCode, headers: res.headers }));
+        },
+      );
+      req.on("error", reject);
+      req.end();
+    });
+
+    expect(forbiddenRes.statusCode).toBe(403);
+    expect(forbiddenRes.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  it("restricts WebSocket upgrade by origin", async () => {
+    const tls = createTempTlsMaterial();
+    tlsDir = tls.dir;
+    const port = await getFreePort();
+    server = await createBridgeServer({
+      port,
+      certPath: tls.certPath,
+      keyPath: tls.keyPath,
+      logger: silentLogger,
+    });
+
+    // Allowed origin succeeds
+    const allowedSocket = new WebSocket(server.wsUrl, {
+      headers: { Origin: "https://localhost:3000" },
+      rejectUnauthorized: false,
+    });
+    await new Promise<void>((resolve, reject) => {
+      allowedSocket.once("open", () => resolve());
+      allowedSocket.once("error", reject);
+    });
+    allowedSocket.close();
+
+    // Disallowed origin is rejected
+    const evilSocket = new WebSocket(server.wsUrl, {
+      headers: { Origin: "https://evil.com" },
+      rejectUnauthorized: false,
+    });
+    const error = await new Promise<Error>((resolve) => {
+      evilSocket.once("error", (err) => resolve(err));
+      evilSocket.once("open", () => {
+        evilSocket.close();
+        resolve(new Error("Expected connection to be rejected"));
+      });
+    });
+    expect(error.message).toMatch(/403|unexpected server response/i);
+  });
+});
+
+describe("protocol type guards", () => {
+  it("isBridgeHelloMessage validates sessionId and documentId strings", () => {
+    expect(isBridgeHelloMessage(null)).toBe(false);
+    expect(isBridgeHelloMessage(undefined)).toBe(false);
+    expect(isBridgeHelloMessage({ type: "hello" })).toBe(false);
+    expect(isBridgeHelloMessage({ type: "hello", snapshot: {} })).toBe(false);
+    expect(
+      isBridgeHelloMessage({
+        type: "hello",
+        snapshot: { sessionId: 123, documentId: "doc-1" },
+      }),
+    ).toBe(false);
+    expect(
+      isBridgeHelloMessage({
+        type: "hello",
+        snapshot: { sessionId: "sess-1", documentId: 456 },
+      }),
+    ).toBe(false);
+    expect(
+      isBridgeHelloMessage({
+        type: "hello",
+        snapshot: { sessionId: "", documentId: "doc-1" },
+      }),
+    ).toBe(false);
+    expect(
+      isBridgeHelloMessage({
+        type: "hello",
+        snapshot: { sessionId: "sess-1", documentId: "doc-1" },
+      }),
+    ).toBe(true);
+  });
+
+  it("isBridgeInvokeMessage validates requestId and method strings", () => {
+    expect(isBridgeInvokeMessage(null)).toBe(false);
+    expect(isBridgeInvokeMessage({ type: "invoke" })).toBe(false);
+    expect(
+      isBridgeInvokeMessage({
+        type: "invoke",
+        requestId: 123,
+        method: "ping",
+      }),
+    ).toBe(false);
+    expect(
+      isBridgeInvokeMessage({
+        type: "invoke",
+        requestId: "req-1",
+        method: 456,
+      }),
+    ).toBe(false);
+    expect(
+      isBridgeInvokeMessage({
+        type: "invoke",
+        requestId: "",
+        method: "ping",
+      }),
+    ).toBe(false);
+    expect(
+      isBridgeInvokeMessage({
+        type: "invoke",
+        requestId: "req-1",
+        method: "ping",
+      }),
+    ).toBe(true);
   });
 });

@@ -119,7 +119,7 @@ export {
 } from "./vfs";
 // Web
 export { loadWebConfig, saveWebConfig, type WebConfig } from "./web/config";
-export { fetchWeb, listFetchProviders } from "./web/fetch";
+export { assertSafeUrl, fetchWeb, listFetchProviders } from "./web/fetch";
 export {
   listImageSearchProviders,
   listSearchProviders,
