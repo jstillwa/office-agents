@@ -96,7 +96,13 @@ function parseDirtyRanges(
   if (!result) return null;
   try {
     const parsed = JSON.parse(result);
-    if (parsed._dirtyRanges && Array.isArray(parsed._dirtyRanges)) {
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed) &&
+      parsed._dirtyRanges &&
+      Array.isArray(parsed._dirtyRanges)
+    ) {
       return parsed._dirtyRanges;
     }
   } catch {

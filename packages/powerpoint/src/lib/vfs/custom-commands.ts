@@ -7,7 +7,11 @@ import {
 } from "@office-agents/core";
 import { defineCommand } from "just-bash/browser";
 import { safeRun, withSlideZip } from "../pptx/slide-zip";
-import { escapeXml } from "../pptx/xml-utils";
+import { escapeXml, parseXml } from "../pptx/xml-utils";
+import {
+  validateScriptCode,
+  validateSlideIndex,
+} from "../tools/edit-slide-xml";
 
 async function resolveVfsPath(
   ctx: { cwd: string; fs: { readFileBuffer(p: string): Promise<Uint8Array> } },
@@ -787,7 +791,7 @@ const insertIconCmd: DescribedCommand = {
 
 const editSlideXmlCmd: DescribedCommand = {
   promptSnippet:
-    "- edit-slide-xml <slide> <script.js> [--lib=a.js,b.js] — Run a JS script from the VFS against a slide's OOXML (1-based slide). Script body runs in the same sandbox as the edit_slide_xml tool with globals: zip, markDirty, escapeXml, readFile, readFileBuffer, writeFile, DOMParser, XMLSerializer. Use --lib to prepend one or more helper files (comma-separated). Put reusable template code in a lib file and keep each per-slide script short.",
+    "- edit-slide-xml <slide> <script.js> [--lib=a.js,b.js] — Run a JS script from the VFS against a slide's OOXML (1-based slide). Script body runs in the same sandbox as the edit_slide_xml tool with globals: zip, markDirty, escapeXml, parseXml, readFile, readFileBuffer, writeFile, XMLSerializer. Use --lib to prepend one or more helper files (comma-separated). Put reusable template code in a lib file and keep each per-slide script short.",
   command: {
     name: "edit-slide-xml",
     load: async () =>
@@ -814,8 +818,8 @@ const editSlideXmlCmd: DescribedCommand = {
               "\n" +
               "The script runs as the body of an async function in the same sandbox as\n" +
               "the edit_slide_xml tool. Available globals:\n" +
-              "  zip, markDirty, escapeXml, readFile, readFileBuffer, writeFile,\n" +
-              "  DOMParser, XMLSerializer, console, Math, Date\n" +
+              "  zip, markDirty, escapeXml, parseXml, readFile, readFileBuffer, writeFile,\n" +
+              "  XMLSerializer, console, Math, Date\n" +
               "\n" +
               "Libs are concatenated before the script. Helpers defined as `const fn = ...`\n" +
               "in a lib can be called from the script.\n",
@@ -825,7 +829,11 @@ const editSlideXmlCmd: DescribedCommand = {
 
         const [slideArg, scriptPath] = positional;
         const slideNum = Number.parseInt(slideArg, 10);
-        if (Number.isNaN(slideNum) || slideNum < 1) {
+        if (
+          Number.isNaN(slideNum) ||
+          slideNum < 1 ||
+          !Number.isInteger(slideNum)
+        ) {
           return {
             stdout: "",
             stderr: "Slide must be a positive number (1-based)",
@@ -833,14 +841,43 @@ const editSlideXmlCmd: DescribedCommand = {
           };
         }
         const slideIndex = slideNum - 1;
+        try {
+          validateSlideIndex(slideIndex);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return {
+            stdout: "",
+            stderr: msg,
+            exitCode: 1,
+          };
+        }
 
         const cwd = ctx.cwd;
-        const resolveVfs = (p: string): string =>
-          p.startsWith("/") ? p : `${cwd}/${p}`;
+        function resolveContained(p: string): string {
+          const raw = p.startsWith("/") ? p : `${cwd}/${p}`;
+          const parts = raw.split("/");
+          const normalized: string[] = [];
+          for (const part of parts) {
+            if (part === "" || part === ".") continue;
+            if (part === "..") {
+              normalized.pop();
+            } else {
+              normalized.push(part);
+            }
+          }
+          const full = `/${normalized.join("/")}`;
+          if (full !== "/home/user" && !full.startsWith("/home/user/")) {
+            throw new Error(
+              `Path access rejected: '${p}' resolves to '${full}', which is outside /home/user/`,
+            );
+          }
+          return full;
+        }
 
         const decoder = new TextDecoder();
         async function readText(p: string): Promise<string> {
-          const buf = await ctx.fs.readFileBuffer(resolveVfs(p));
+          const resolved = resolveContained(p);
+          const buf = await ctx.fs.readFileBuffer(resolved);
           return decoder.decode(buf);
         }
 
@@ -883,16 +920,28 @@ const editSlideXmlCmd: DescribedCommand = {
             : scriptSource;
 
         try {
+          validateScriptCode(combined);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return {
+            stdout: "",
+            stderr: `edit-slide-xml validation failed: ${msg}`,
+            exitCode: 1,
+          };
+        }
+
+        try {
           const result = await safeRun(async (context) => {
             return withSlideZip(context, slideIndex, async (args) => {
               return sandboxedEval(combined, {
                 ...args,
                 escapeXml,
+                parseXml,
                 readFile: (p: string) => readText(p),
                 readFileBuffer: (p: string) =>
-                  ctx.fs.readFileBuffer(resolveVfs(p)),
+                  ctx.fs.readFileBuffer(resolveContained(p)),
                 writeFile: async (p: string, content: string | Uint8Array) => {
-                  const full = resolveVfs(p);
+                  const full = resolveContained(p);
                   const dir = full.substring(0, full.lastIndexOf("/"));
                   if (dir && dir !== "/") {
                     try {
@@ -903,7 +952,6 @@ const editSlideXmlCmd: DescribedCommand = {
                   }
                   await ctx.fs.writeFile(full, content);
                 },
-                DOMParser,
                 XMLSerializer,
               });
             });

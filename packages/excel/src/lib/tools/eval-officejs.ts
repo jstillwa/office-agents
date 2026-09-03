@@ -7,6 +7,19 @@ import { defineTool, toolError, toolSuccess } from "./types";
 
 /* global Excel */
 
+// Destructive-op guardrail against accidental LLM behaviour, NOT a security control
+// (trivially bypassed by string concatenation); the real controls are
+// the ws-04 tool allow/deny policy and audit log.
+const DESTRUCTIVE_PATTERNS = [
+  /\.delete\s*\(/,
+  /\.clear\s*\(/,
+  /\bdelete\b.*worksheet/i,
+];
+
+function containsDestructiveOps(code: string): boolean {
+  return DESTRUCTIVE_PATTERNS.some((p) => p.test(code));
+}
+
 const MUTATION_PATTERNS = [
   /\.(values|formulas|numberFormat)\s*=/,
   /\.clear\s*\(/,
@@ -20,7 +33,31 @@ function looksLikeMutation(code: string): boolean {
   return MUTATION_PATTERNS.some((p) => p.test(code));
 }
 
-export function createEvalOfficeJsTool(ctx: AgentContext) {
+const TIMEOUT_MS = 30_000;
+
+function withTimeout<T>(promise: Promise<T>, ms = TIMEOUT_MS): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(`Execution timed out after ${ms / 1000}s`));
+      }, ms);
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+export interface EvalOfficeJsOptions {
+  allowDestructiveOps?: boolean;
+  timeoutMs?: number;
+}
+
+export function createEvalOfficeJsTool(
+  ctx: AgentContext,
+  options?: EvalOfficeJsOptions,
+) {
   return defineTool({
     name: "eval_officejs",
     label: "Execute Office.js Code",
@@ -46,27 +83,46 @@ export function createEvalOfficeJsTool(ctx: AgentContext) {
           maxLength: 100,
         }),
       ),
+      allowDestructiveOps: Type.Optional(
+        Type.Boolean({
+          description:
+            "Set to true to allow destructive operations (.delete(), .clear(), worksheet deletion). Defaults to false.",
+        }),
+      ),
     }),
     execute: async (_toolCallId, params) => {
+      const allowDestructive =
+        params.allowDestructiveOps ?? options?.allowDestructiveOps ?? false;
+
+      if (!allowDestructive && containsDestructiveOps(params.code)) {
+        return toolError(
+          "Destructive operations (.delete(), .clear(), worksheet deletion) are not allowed unless allowDestructiveOps is set to true.",
+        );
+      }
+
       try {
         let dirtyRanges: DirtyRange[] = [];
 
-        const result = await Excel.run(async (context) => {
-          const { trackedContext, getDirtyRanges } =
-            createTrackedContext(context);
+        const timeoutMs = options?.timeoutMs ?? TIMEOUT_MS;
+        const result = await withTimeout(
+          Excel.run(async (context) => {
+            const { trackedContext, getDirtyRanges } =
+              createTrackedContext(context);
 
-          const execResult = await sandboxedEval(params.code, {
-            context: trackedContext,
-            Excel,
-            readFile: (path: string) => ctx.readFile(path),
-            readFileBuffer: (path: string) => ctx.readFileBuffer(path),
-            writeFile: (path: string, content: string | Uint8Array) =>
-              ctx.writeFile(path, content),
-          });
+            const execResult = await sandboxedEval(params.code, {
+              context: trackedContext,
+              Excel,
+              readFile: (path: string) => ctx.readFile(path),
+              readFileBuffer: (path: string) => ctx.readFileBuffer(path),
+              writeFile: (path: string, content: string | Uint8Array) =>
+                ctx.writeFile(path, content),
+            });
 
-          dirtyRanges = getDirtyRanges();
-          return execResult;
-        });
+            dirtyRanges = getDirtyRanges();
+            return execResult;
+          }),
+          timeoutMs,
+        );
 
         if (dirtyRanges.length === 0 && looksLikeMutation(params.code)) {
           dirtyRanges = [{ sheetId: -1, range: "*" }];

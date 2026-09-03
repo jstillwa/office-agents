@@ -24,21 +24,35 @@ function safeRun<T>(
   callback: (ctx: PowerPoint.RequestContext) => Promise<T>,
 ): Promise<T> {
   if (getPlatform() !== "OfficeOnline") {
-    return PowerPoint.run(callback);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+      PowerPoint.run(callback),
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("PowerPoint.run timed out after 30s")),
+          30_000,
+        );
+      }),
+    ]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
   }
   const task: Promise<T> = onlineRunQueue
     .catch(() => {})
-    .then(() =>
-      Promise.race([
+    .then(() => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      return Promise.race([
         PowerPoint.run(callback),
-        new Promise<T>((_, reject) =>
-          setTimeout(
+        new Promise<T>((_, reject) => {
+          timer = setTimeout(
             () => reject(new Error("Office.run timed out after 120s")),
             120_000,
-          ),
-        ),
-      ]),
-    );
+          );
+        }),
+      ]).finally(() => {
+        if (timer) clearTimeout(timer);
+      });
+    });
   onlineRunQueue = task.then(() => {}).catch(() => {});
   return task;
 }

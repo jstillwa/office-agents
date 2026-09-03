@@ -41,15 +41,25 @@ export function createTrackedContext(
 
   // Called after each context.sync() to resolve pending sheet IDs
   const resolvePendingSheetRefs = async () => {
-    if (pendingSheetRefs.length === 0) return;
+    const unresolved = pendingSheetRefs.filter((p) => p.sheetIdRef.id === -1);
+    if (unresolved.length === 0) return;
 
-    for (const pending of pendingSheetRefs) {
-      if (pending.sheetIdRef.id !== -1) continue; // Already resolved
-
+    for (const pending of unresolved) {
       try {
-        // Get the stable ID for this sheet (persisted in document settings)
         pending.sheet.load("id");
-        await context.sync();
+      } catch {
+        // Already loaded or unsupported
+      }
+    }
+
+    try {
+      await context.sync();
+    } catch {
+      return;
+    }
+
+    for (const pending of unresolved) {
+      try {
         pending.sheetIdRef.id = await getStableSheetId(pending.sheet.id);
       } catch {
         // Failed to resolve, will remain -1
@@ -57,10 +67,14 @@ export function createTrackedContext(
     }
   };
 
-  // Helper to get clean address from range
-  const getCleanAddr = (target: any): string => {
-    const addr = target.m_address || target._address || "*";
-    return typeof addr === "string" ? addr.split("!").pop() || "*" : "*";
+  // Helper to get clean address from range with explicit address loading
+  const getCleanAddr = (target: Excel.Range): string => {
+    try {
+      const addr = target.address;
+      return typeof addr === "string" ? addr.split("!").pop() || "*" : "*";
+    } catch {
+      return "*";
+    }
   };
 
   const createTrackedRangeWithRef = (
@@ -68,6 +82,14 @@ export function createTrackedContext(
     sheetIdRef: { id: number },
     knownAddress?: string,
   ): Excel.Range => {
+    if (!knownAddress) {
+      try {
+        range.load("address");
+      } catch {
+        // Ignore if already loaded or not supported
+      }
+    }
+
     // Use the known address if provided, otherwise try to get it from the range
     const getAddress = (): string => {
       if (knownAddress) return knownAddress;
@@ -84,11 +106,11 @@ export function createTrackedContext(
         ) {
           markDirty(sheetIdRef, getAddress());
         }
-        (target as any)[prop] = value;
+        Reflect.set(target, prop, value);
         return true;
       },
       get(target, prop) {
-        const value = (target as any)[prop];
+        const value = Reflect.get(target, prop);
 
         // Wrap methods that return ranges (these create new ranges, address unknown)
         if (
@@ -97,7 +119,7 @@ export function createTrackedContext(
           prop === "getRow" ||
           prop === "getResizedRange"
         ) {
-          return (...args: any[]) => {
+          return (...args: unknown[]) => {
             const result = (value as AnyFunction).apply(target, args);
             return createTrackedRangeWithRef(result, sheetIdRef); // No known address
           };
@@ -105,7 +127,7 @@ export function createTrackedContext(
 
         // Track clear() calls
         if (prop === "clear") {
-          return (...args: any[]) => {
+          return (...args: unknown[]) => {
             markDirty(sheetIdRef, getAddress());
             return (value as AnyFunction).apply(target, args);
           };
@@ -113,7 +135,7 @@ export function createTrackedContext(
 
         // Track delete() calls
         if (prop === "delete") {
-          return (...args: any[]) => {
+          return (...args: unknown[]) => {
             markDirty(sheetIdRef, "*"); // Deletion affects everything below/right
             return (value as AnyFunction).apply(target, args);
           };
@@ -121,7 +143,7 @@ export function createTrackedContext(
 
         // Track insert() calls
         if (prop === "insert") {
-          return (...args: any[]) => {
+          return (...args: unknown[]) => {
             markDirty(sheetIdRef, "*"); // Insertion affects everything below/right
             return (value as AnyFunction).apply(target, args);
           };
@@ -129,7 +151,7 @@ export function createTrackedContext(
 
         // Track copyFrom() calls
         if (prop === "copyFrom") {
-          return (...args: any[]) => {
+          return (...args: unknown[]) => {
             markDirty(sheetIdRef, getAddress());
             return (value as AnyFunction).apply(target, args);
           };
@@ -165,11 +187,11 @@ export function createTrackedContext(
     return new Proxy(format, {
       set(target, prop, value) {
         markDirty(sheetIdRef, getAddress());
-        (target as any)[prop] = value;
+        Reflect.set(target, prop, value);
         return true;
       },
       get(target, prop) {
-        const value = (target as any)[prop];
+        const value = Reflect.get(target, prop);
 
         // Track nested format properties (font, fill, borders)
         if (prop === "font" || prop === "fill" || prop === "borders") {
@@ -189,23 +211,23 @@ export function createTrackedContext(
     });
   };
 
-  const createTrackedFormatPartWithRef = (
-    part: any,
+  const createTrackedFormatPartWithRef = <T extends object>(
+    part: T,
     sheetIdRef: { id: number },
     range: Excel.Range,
     knownAddress?: string,
-  ): any => {
+  ): T => {
     const getAddress = (): string =>
       knownAddress ? knownAddress : getCleanAddr(range);
 
     return new Proxy(part, {
       set(target, prop, value) {
         markDirty(sheetIdRef, getAddress());
-        target[prop] = value;
+        Reflect.set(target, prop, value);
         return true;
       },
       get(target, prop) {
-        const value = target[prop];
+        const value = Reflect.get(target, prop);
         if (typeof value === "function") {
           return value.bind(target);
         }
@@ -220,11 +242,11 @@ export function createTrackedContext(
   ): Excel.Worksheet => {
     return new Proxy(sheet, {
       get(target, prop) {
-        const value = (target as any)[prop];
+        const value = Reflect.get(target, prop);
 
         // Wrap getRange to return tracked ranges with known address
         if (prop === "getRange") {
-          return (...args: any[]) => {
+          return (...args: unknown[]) => {
             const result = (value as AnyFunction).apply(target, args);
             // args[0] is the address string like "A1:B5"
             const address = typeof args[0] === "string" ? args[0] : undefined;
@@ -234,7 +256,7 @@ export function createTrackedContext(
 
         // getUsedRange doesn't have a known address upfront
         if (prop === "getUsedRange" || prop === "getUsedRangeOrNullObject") {
-          return (...args: any[]) => {
+          return (...args: unknown[]) => {
             const result = (value as AnyFunction).apply(target, args);
             return createTrackedRangeWithRef(result, sheetIdRef);
           };
@@ -272,11 +294,11 @@ export function createTrackedContext(
   ): Excel.CommentCollection => {
     return new Proxy(notes, {
       get(target, prop) {
-        const value = (target as any)[prop];
+        const value = Reflect.get(target, prop);
 
         if (prop === "add") {
-          return (...args: any[]) => {
-            const addr = args[0] || "*";
+          return (...args: unknown[]) => {
+            const addr = typeof args[0] === "string" ? args[0] : "*";
             markDirty(sheetIdRef, addr);
             return (value as AnyFunction).apply(target, args);
           };
@@ -290,16 +312,16 @@ export function createTrackedContext(
     });
   };
 
-  const createTrackedCollectionWithRef = (
-    collection: any,
+  const createTrackedCollectionWithRef = <T extends object>(
+    collection: T,
     sheetIdRef: { id: number },
-  ): any => {
+  ): T => {
     return new Proxy(collection, {
       get(target, prop) {
-        const value = target[prop];
+        const value = Reflect.get(target, prop);
 
         if (prop === "add" || prop === "delete") {
-          return (...args: any[]) => {
+          return (...args: unknown[]) => {
             markDirty(sheetIdRef, "*");
             return (value as AnyFunction).apply(target, args);
           };
@@ -317,13 +339,13 @@ export function createTrackedContext(
     worksheets: Excel.WorksheetCollection,
   ): Excel.WorksheetCollection => {
     const worksheetProxies = new Map<
-      Excel.Worksheet,
+      string,
       { proxy: Excel.Worksheet; sheetIdRef: { id: number } }
     >();
 
     return new Proxy(worksheets, {
       get(target, prop) {
-        const value = (target as any)[prop];
+        const value = Reflect.get(target, prop);
 
         // Wrap getItem, getActiveWorksheet, etc.
         if (
@@ -333,32 +355,37 @@ export function createTrackedContext(
           prop === "getFirst" ||
           prop === "getLast"
         ) {
-          return (...args: any[]) => {
+          return (...args: unknown[]) => {
             const sheet = (value as AnyFunction).apply(
               target,
               args,
             ) as Excel.Worksheet;
 
+            const sheetKey =
+              typeof args[0] === "string" ? args[0] : (prop as string);
+
             // Return cached proxy or create new one
-            if (!worksheetProxies.has(sheet)) {
-              // Use a mutable ref object so the sheetId can be updated after sync
-              const sheetIdRef = { id: -1 };
-              const proxy = createTrackedWorksheetWithRef(sheet, sheetIdRef);
-              worksheetProxies.set(sheet, { proxy, sheetIdRef });
-
-              // Queue the sheet.load("id") - will be resolved when user calls context.sync()
-              sheet.load("id");
-              pendingSheetRefs.push({ sheet, sheetIdRef });
-
-              return proxy;
+            const cached = worksheetProxies.get(sheetKey);
+            if (cached) {
+              return cached.proxy;
             }
-            return worksheetProxies.get(sheet)!.proxy;
+
+            // Use a mutable ref object so the sheetId can be updated after sync
+            const sheetIdRef = { id: -1 };
+            const proxy = createTrackedWorksheetWithRef(sheet, sheetIdRef);
+            worksheetProxies.set(sheetKey, { proxy, sheetIdRef });
+
+            // Queue the sheet.load("id") - will be resolved when user calls context.sync()
+            sheet.load("id");
+            pendingSheetRefs.push({ sheet, sheetIdRef });
+
+            return proxy;
           };
         }
 
         // Track worksheet creation/deletion
         if (prop === "add") {
-          return (...args: any[]) => {
+          return (...args: unknown[]) => {
             const newSheet = (value as AnyFunction).apply(
               target,
               args,
@@ -379,7 +406,7 @@ export function createTrackedContext(
   const createTrackedWorkbook = (workbook: Excel.Workbook): Excel.Workbook => {
     return new Proxy(workbook, {
       get(target, prop) {
-        const value = (target as any)[prop];
+        const value = Reflect.get(target, prop);
 
         if (prop === "worksheets") {
           return createTrackedWorksheets(value);
@@ -395,7 +422,7 @@ export function createTrackedContext(
 
   const trackedContext = new Proxy(context, {
     get(target, prop) {
-      const value = (target as any)[prop];
+      const value = Reflect.get(target, prop);
 
       if (prop === "workbook") {
         return createTrackedWorkbook(value);

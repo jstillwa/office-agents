@@ -39,7 +39,6 @@ export function createExecuteOfficeJsTool(ctx: AgentContext) {
           return sandboxedEval(params.code, {
             context,
             PowerPoint,
-            Office,
             readFile: (path: string) => ctx.readFile(path),
             readFileBuffer: (path: string) => ctx.readFileBuffer(path),
             writeFile: (path: string, content: string | Uint8Array) =>

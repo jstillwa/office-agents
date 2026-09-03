@@ -1,3 +1,15 @@
+export function parseXml(xmlString: string): Document {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlString, "application/xml");
+  const parserError = doc.getElementsByTagName("parsererror")[0];
+  if (parserError) {
+    throw new Error(
+      `XML parse error: ${parserError.textContent || "invalid XML"}`,
+    );
+  }
+  return doc;
+}
+
 const NS_P = "http://schemas.openxmlformats.org/presentationml/2006/main";
 
 export function escapeXml(text: string): string {
