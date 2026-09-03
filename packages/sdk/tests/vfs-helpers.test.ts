@@ -63,12 +63,25 @@ describe("VFS file operations", () => {
     expect(await ctx.fileExists("/home/user/uploads/report.csv")).toBe(true);
   });
 
-  it("handles absolute paths outside uploads", async () => {
+  it("handles absolute paths outside uploads but within /home/user/", async () => {
     const ctx = createCtx();
-    await ctx.writeFile("/tmp/scratch.txt", "temp");
-    expect(await ctx.fileExists("/tmp/scratch.txt")).toBe(true);
-    const text = await ctx.readFile("/tmp/scratch.txt");
+    await ctx.writeFile("/home/user/scratch.txt", "temp");
+    expect(await ctx.fileExists("/home/user/scratch.txt")).toBe(true);
+    const text = await ctx.readFile("/home/user/scratch.txt");
     expect(text).toBe("temp");
+  });
+
+  it("rejects writes outside /home/user/ (e.g. /skills/ or /tmp/)", async () => {
+    const ctx = createCtx();
+    await expect(
+      ctx.writeFile("/skills/custom.md", "payload"),
+    ).rejects.toThrow("outside /home/user/");
+    await expect(
+      ctx.writeFile("/tmp/scratch.txt", "payload"),
+    ).rejects.toThrow("outside /home/user/");
+    await expect(
+      ctx.writeFile("../../skills/exploit.txt", "payload"),
+    ).rejects.toThrow("outside /home/user/");
   });
 
   it("creates nested directories for uploads", async () => {

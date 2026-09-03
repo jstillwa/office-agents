@@ -37,13 +37,13 @@ describe("vfs", () => {
   it("snapshots uploads but excludes cached skill files", async () => {
     const ctx = createCtx();
     await ctx.writeFile("budget.csv", "quarter,amount\nQ1,100");
-    await ctx.writeFile("/tmp/scratch.txt", "temporary");
+    await ctx.writeFile("/home/user/scratch.txt", "temporary");
 
     const snapshot = await ctx.snapshotVfs();
     const paths = snapshot.map((entry) => entry.path).sort();
 
     expect(paths).toContain("/home/user/uploads/budget.csv");
-    expect(paths).toContain("/tmp/scratch.txt");
+    expect(paths).toContain("/home/user/scratch.txt");
     expect(paths.some((path) => path.startsWith("/home/skills/"))).toBe(false);
   });
 

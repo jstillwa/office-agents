@@ -8,6 +8,7 @@ interface ToolConfig<T extends TObject> {
   label: string;
   description: string;
   parameters: T;
+  destructive?: boolean;
   execute: (
     toolCallId: string,
     params: Static<T>,
@@ -17,8 +18,8 @@ interface ToolConfig<T extends TObject> {
 
 export function defineTool<T extends TObject>(
   config: ToolConfig<T>,
-): AgentTool {
-  return config as unknown as AgentTool;
+): AgentTool<T, undefined> {
+  return config as AgentTool<T, undefined>;
 }
 
 export function toolSuccess(data: unknown): ToolResult {

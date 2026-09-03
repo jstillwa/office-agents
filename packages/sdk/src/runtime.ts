@@ -54,12 +54,25 @@ import {
   saveSession,
   saveVfsFiles,
 } from "./storage";
+import {
+  type TelemetrySink,
+  type ToolPolicyConfig,
+  wrapToolsWithPolicyAndAudit,
+} from "./telemetry";
 import type { CustomCommandsResult } from "./vfs/custom-commands";
+export {
+  type TelemetrySink,
+  type ToolPolicyConfig,
+  wrapToolsWithPolicyAndAudit,
+};
 
 export interface RuntimeAdapter {
   tools: AgentTool[] | ((ctx: AgentContext) => AgentTool[]);
   buildSystemPrompt: (skills: SkillMeta[], commandSnippets: string[]) => string;
   getDocumentId: () => Promise<string>;
+  getUserId?: () => Promise<string | null>;
+  telemetrySink?: TelemetrySink;
+  toolPolicy?: ToolPolicyConfig;
   getDocumentMetadata?: () => Promise<{
     metadata: object;
     nameMap?: Record<number, string>;
@@ -69,6 +82,11 @@ export interface RuntimeAdapter {
   staticFiles?: Record<string, string>;
   customCommands?: (ns: StorageNamespace) => CustomCommandsResult;
   storageNamespace?: Partial<StorageNamespace>;
+}
+
+export interface AgentRuntimeOptions {
+  telemetrySink?: TelemetrySink;
+  toolPolicy?: ToolPolicyConfig;
 }
 
 export interface UploadedFile {
@@ -108,10 +126,13 @@ export class AgentRuntime {
   private streamingMessageId: string | null = null;
   private isStreaming = false;
   private documentId: string | null = null;
+  private userId: string | null = null;
   private currentSessionId: string | null = null;
   private sessionLoaded = false;
   private followMode = true;
   private skills: SkillMeta[] = [];
+  private telemetrySink: TelemetrySink | null = null;
+  private toolPolicy: ToolPolicyConfig | null = null;
 
   private adapter: RuntimeAdapter;
   private listeners: Set<StateListener> = new Set();
@@ -128,12 +149,54 @@ export class AgentRuntime {
       typeof this.adapter.tools === "function"
         ? this.adapter.tools(this.context)
         : this.adapter.tools;
-    return [...base, ...this.mcpTools];
+    const allTools = [...base, ...this.mcpTools];
+    const policy = this.toolPolicy ?? this.adapter.toolPolicy;
+    const sink = this.telemetrySink ?? this.adapter.telemetrySink;
+
+    return wrapToolsWithPolicyAndAudit(allTools, {
+      policy,
+      telemetrySink: sink ?? undefined,
+      getDocumentId: async () =>
+        this.documentId ?? (await this.adapter.getDocumentId?.()) ?? null,
+      getUserId: async () =>
+        this.userId ?? (await this.adapter.getUserId?.()) ?? null,
+    });
   }
 
-  constructor(adapter: RuntimeAdapter, context: AgentContext) {
+  getTools(): AgentTool[] {
+    return this.tools;
+  }
+
+  getUserId(): string | null {
+    return this.userId;
+  }
+
+  getDocumentId(): string | null {
+    return this.documentId;
+  }
+
+  setTelemetrySink(sink: TelemetrySink | null): void {
+    this.telemetrySink = sink;
+  }
+
+  setToolPolicy(policy: ToolPolicyConfig | null): void {
+    this.toolPolicy = policy;
+    this.context.setToolPolicy(policy ?? undefined);
+  }
+
+  constructor(
+    adapter: RuntimeAdapter,
+    context: AgentContext,
+    options?: AgentRuntimeOptions,
+  ) {
     this.adapter = adapter;
     this.context = context;
+    this.telemetrySink =
+      options?.telemetrySink ?? adapter.telemetrySink ?? null;
+    this.toolPolicy = options?.toolPolicy ?? adapter.toolPolicy ?? null;
+    if (this.toolPolicy) {
+      this.context.setToolPolicy(this.toolPolicy);
+    }
 
     const saved = loadSavedConfig(this.ns);
     const validConfig =
@@ -227,7 +290,6 @@ export class AgentRuntime {
   }
 
   private handleAgentEvent = (event: AgentEvent) => {
-    console.log("[Runtime] Agent event:", event.type, event);
     switch (event.type) {
       case "message_start": {
         if (event.message.role === "assistant") {
@@ -736,6 +798,13 @@ export class AgentRuntime {
       const id = await this.adapter.getDocumentId();
       this.documentId = id;
 
+      try {
+        this.userId = (await this.adapter.getUserId?.()) ?? null;
+      } catch (err) {
+        console.error("Failed to resolve userId:", err);
+        this.userId = null;
+      }
+
       const skills = await getInstalledSkills(this.ns);
       this.skills = skills;
       await syncSkillsToVfs(this.ns, this.context);
@@ -830,9 +899,13 @@ export class AgentRuntime {
     } catch (err) {
       console.error("Failed to delete file:", err);
       this.update({
-        uploads: this.state.uploads.filter((u) => u.name !== name),
+        error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  async deleteFile(name: string) {
+    return this.removeUpload(name);
   }
 
   private async refreshSkillsAndRebuildAgent() {

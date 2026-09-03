@@ -1,5 +1,28 @@
 import { Bash, InMemoryFs } from "just-bash/browser";
+import {
+  type ToolPolicyConfig,
+  wrapCustomCommandWithPolicy,
+} from "./telemetry";
 import type { CustomCommandsResult } from "./vfs/custom-commands";
+
+export function normalizePath(path: string): string {
+  const parts = path.split("/");
+  const resolved: string[] = [];
+  for (const part of parts) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      resolved.pop();
+    } else {
+      resolved.push(part);
+    }
+  }
+  return `/${resolved.join("/")}`;
+}
+
+export function resolveContainedPath(base: string, path: string): string {
+  const raw = path.startsWith("/") ? path : `${base}/${path}`;
+  return normalizePath(raw);
+}
 
 export interface StorageNamespace {
   dbName: string;
@@ -21,6 +44,7 @@ export interface AgentContextOptions {
   staticFiles?: Record<string, string>;
   skillFiles?: Record<string, Uint8Array | string>;
   customCommands?: (ns: StorageNamespace) => CustomCommandsResult;
+  toolPolicy?: ToolPolicyConfig;
 }
 
 export class AgentContext {
@@ -33,12 +57,14 @@ export class AgentContext {
   private _customCommandsFactory:
     | ((ns: StorageNamespace) => CustomCommandsResult)
     | null;
+  private _toolPolicy?: ToolPolicyConfig;
 
   constructor(opts: AgentContextOptions = {}) {
     this.namespace = { ...NAMESPACE_DEFAULTS, ...opts.namespace };
     this._staticFiles = opts.staticFiles ?? {};
     this._skillFiles = opts.skillFiles ?? {};
     this._customCommandsFactory = opts.customCommands ?? null;
+    this._toolPolicy = opts.toolPolicy;
   }
 
   get vfs(): InMemoryFs {
@@ -54,14 +80,29 @@ export class AgentContext {
 
   get bash(): Bash {
     if (!this._bash) {
+      const rawCommands =
+        this._customCommandsFactory?.(this.namespace).commands ?? [];
+      const commands = this._toolPolicy
+        ? rawCommands.map((cmd) =>
+            wrapCustomCommandWithPolicy(cmd, this._toolPolicy),
+          )
+        : rawCommands;
       this._bash = new Bash({
         fs: this.vfs,
         cwd: "/home/user",
-        customCommands:
-          this._customCommandsFactory?.(this.namespace).commands ?? [],
+        customCommands: commands,
       });
     }
     return this._bash;
+  }
+
+  get toolPolicy(): ToolPolicyConfig | undefined {
+    return this._toolPolicy;
+  }
+
+  setToolPolicy(policy?: ToolPolicyConfig): void {
+    this._toolPolicy = policy;
+    this._bash = null;
   }
 
   async setStaticFiles(files: Record<string, string>): Promise<void> {
@@ -173,9 +214,15 @@ export class AgentContext {
   }
 
   async writeFile(path: string, content: string | Uint8Array): Promise<void> {
-    const vfs = this.vfs;
-    const fullPath = path.startsWith("/") ? path : `/home/user/uploads/${path}`;
+    const fullPath = resolveContainedPath("/home/user/uploads", path);
 
+    if (fullPath !== "/home/user" && !fullPath.startsWith("/home/user/")) {
+      throw new Error(
+        `Write rejected: path '${path}' resolves to '${fullPath}', which is outside /home/user/`,
+      );
+    }
+
+    const vfs = this.vfs;
     const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
     if (dir && dir !== "/") {
       try {
@@ -189,22 +236,27 @@ export class AgentContext {
   }
 
   async readFile(path: string): Promise<string> {
-    const fullPath = path.startsWith("/") ? path : `/home/user/uploads/${path}`;
+    const fullPath = resolveContainedPath("/home/user/uploads", path);
     return this.vfs.readFile(fullPath);
   }
 
   async readFileBuffer(path: string): Promise<Uint8Array> {
-    const fullPath = path.startsWith("/") ? path : `/home/user/uploads/${path}`;
+    const fullPath = resolveContainedPath("/home/user/uploads", path);
     return this.vfs.readFileBuffer(fullPath);
   }
 
   async fileExists(path: string): Promise<boolean> {
-    const fullPath = path.startsWith("/") ? path : `/home/user/uploads/${path}`;
+    const fullPath = resolveContainedPath("/home/user/uploads", path);
     return this.vfs.exists(fullPath);
   }
 
   async deleteFile(path: string): Promise<void> {
-    const fullPath = path.startsWith("/") ? path : `/home/user/uploads/${path}`;
+    const fullPath = resolveContainedPath("/home/user/uploads", path);
+    if (fullPath !== "/home/user" && !fullPath.startsWith("/home/user/")) {
+      throw new Error(
+        `Delete rejected: path '${path}' resolves to '${fullPath}', which is outside /home/user/`,
+      );
+    }
     await this.vfs.rm(fullPath);
   }
 

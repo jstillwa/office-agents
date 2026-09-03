@@ -133,7 +133,7 @@ export function createEditFileTool(ctx: AgentContext) {
             );
           }
           const before = text.length;
-          text = text.replace(old_text, new_text);
+          text = text.replace(old_text, () => new_text);
           applied.push({ index: i + 1, bytesDelta: text.length - before });
         }
 

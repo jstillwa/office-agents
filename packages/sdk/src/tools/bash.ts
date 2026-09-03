@@ -1,5 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import type { AgentContext } from "../context";
+import type { ToolPolicyConfig } from "../telemetry";
 import {
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
@@ -8,17 +9,37 @@ import {
 } from "../truncate";
 import { defineTool, toolError, toolText } from "./types";
 
-export function createBashTool(ctx: AgentContext) {
+export interface BashToolOptions {
+  policy?: ToolPolicyConfig;
+}
+
+export function createBashTool(
+  ctx: AgentContext,
+  options?: BashToolOptions | ToolPolicyConfig,
+) {
+  const policy =
+    options &&
+    ("allowedTools" in options ||
+      "deniedTools" in options ||
+      "allowDestructiveOps" in options)
+      ? (options as ToolPolicyConfig)
+      : (options as BashToolOptions)?.policy;
+
+  if (policy) {
+    ctx.setToolPolicy(policy);
+  }
+
   return defineTool({
     name: "bash",
     label: "Bash",
     description:
       "Execute bash commands in a sandboxed virtual environment. " +
       `Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). ` +
-      "The filesystem is in-memory with user uploads in /home/user/uploads/. " +
+      "The filesystem is in-memory with user files contained in /home/user/. " +
       "Useful for: file operations (ls, cat, grep, find), text processing (awk, sed, jq, sort, uniq), " +
       "data analysis (wc, cut, paste), and general scripting. " +
-      "Network access is disabled. No external runtimes (node, python, etc.) are available.",
+      "Direct network access (curl, wget) and external host runtimes (node, python) are disabled. " +
+      "Application custom commands (such as document converters or web search/fetch) may be available if configured and permitted by policy.",
     parameters: Type.Object({
       command: Type.String({
         description:
