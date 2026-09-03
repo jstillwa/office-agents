@@ -15,7 +15,33 @@ https://github.com/user-attachments/assets/50f3ba42-4daa-49d8-b31e-bae9be6e225b
 | [`@office-agents/powerpoint`](./packages/powerpoint) | PowerPoint Add-in — slide/OOXML tools, Office.js wrappers, system prompt             |
 | [`@office-agents/word`](./packages/word)             | Word Add-in — document text/structure/OOXML tools, Office.js wrappers, system prompt |
 
-See each package's README for install instructions and tool documentation.
+See each package's README for individual tool documentation and details.
+
+## Installation
+
+### Sideloading (Individual / Development)
+
+To install and run the add-in locally on desktop or web:
+
+1. Locate the production manifest for your application:
+   - Excel: [`packages/excel/manifest.prod.xml`](./packages/excel/manifest.prod.xml)
+   - PowerPoint: [`packages/powerpoint/manifest.prod.xml`](./packages/powerpoint/manifest.prod.xml)
+   - Word: [`packages/word/manifest.prod.xml`](./packages/word/manifest.prod.xml)
+2. Follow the steps for your platform:
+   - **Office on the Web**: Open Excel, Word, or PowerPoint on [office.com](https://office.com) → **Insert** → **Add-ins** → **More Add-ins** → **Upload My Add-in** → select `manifest.prod.xml`.
+   - **Windows**: Open the Office app → **Insert** → **Add-ins** → **My Add-ins** → **Upload My Add-in** → select `manifest.prod.xml`.
+   - **macOS**: Copy `manifest.prod.xml` to `~/Library/Containers/com.microsoft.<Excel|Powerpoint|Word>/Data/Documents/wef/`, restart Office, then select the add-in from **Insert** → **Add-ins** → **My Add-ins**.
+
+### Enterprise Centralized Deployment (Admin)
+
+To deploy across an entire organization or specific Microsoft 365 security groups:
+
+1. Configure Entra ID SSO and environment parameters (`VITE_APP_MODE=enterprise`, `VITE_GATEWAY_URL`, `VITE_DEPLOY_URL`).
+2. Update `<WebApplicationInfo>` in `manifest.prod.xml` with your Entra ID Application Client ID and Resource URI (`api://{HOST}/{CLIENT_ID}`).
+3. Sign in to the [Microsoft 365 Admin Center](https://admin.microsoft.com/) → **Settings** → **Integrated apps** → **Upload custom apps** → upload `manifest.prod.xml`.
+4. Assign deployment scope to your pilot group or entire organization.
+
+For detailed architecture, Entra ID pre-authorization, tool execution policies, audit sinks, and troubleshooting, see the [Enterprise Deployment Runbook](./docs/ENTERPRISE_DEPLOYMENT.md).
 
 ## Skills
 
@@ -41,6 +67,11 @@ In **Settings** you can configure:
 - Thinking level
 - Skills
 - Web search/fetch providers and API keys
+
+### Deployment Modes
+
+- **Enterprise Mode (`VITE_APP_MODE=enterprise`)**: Enforces Office SSO via Entra ID (`OfficeRuntime.auth.getAccessToken`), routes all completions to a corporate LLM gateway, disables browser API key storage (zero-BYOK), and locks down the settings UI.
+- **Dev Mode (default)**: Enables client-side BYOK API keys, consumer OAuth (Claude/ChatGPT), custom OpenAI-compatible endpoints, and the local dev bridge.
 
 ### Web search/fetch credentials
 
