@@ -51,17 +51,28 @@ export function saveWebConfig(
   config: Partial<WebConfig>,
 ) {
   const current = loadWebConfig(ns);
+  if (isEnterprise()) {
+    const enterpriseConfig = {
+      searchProvider: config.searchProvider || current.searchProvider,
+      imageSearchProvider:
+        config.imageSearchProvider || current.imageSearchProvider,
+      fetchProvider: config.fetchProvider || current.fetchProvider,
+    };
+    localStorage.setItem(webConfigKey(ns), JSON.stringify(enterpriseConfig));
+    return;
+  }
+
   const next: WebConfig = {
     searchProvider: config.searchProvider || current.searchProvider,
     imageSearchProvider:
       config.imageSearchProvider || current.imageSearchProvider,
     fetchProvider: config.fetchProvider || current.fetchProvider,
-    apiKeys: isEnterprise()
-      ? {}
-      : {
-          ...current.apiKeys,
-          ...(config.apiKeys || {}),
-        },
+    apiKeys: {
+      ...current.apiKeys,
+      ...(config.apiKeys || {}),
+    },
   };
+  // CodeQL [js/clear-text-storage-of-sensitive-information] BYOK client-side development mode credential storage
+  // lgtm [js/clear-text-storage-of-sensitive-information]
   localStorage.setItem(webConfigKey(ns), JSON.stringify(next));
 }

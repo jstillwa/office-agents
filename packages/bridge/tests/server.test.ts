@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
@@ -90,6 +90,8 @@ function createTempTlsMaterial() {
     "-nodes",
     "-subj",
     "/CN=localhost",
+    "-addext",
+    "subjectAltName=DNS:localhost,IP:127.0.0.1",
     "-days",
     "1",
   ]);
@@ -335,7 +337,7 @@ describe("bridge server", () => {
         {
           method: "GET",
           headers: { Origin: "https://localhost:3000" },
-          rejectUnauthorized: false,
+          ca: readFileSync(tls.certPath),
         },
         (res) => {
           res.resume();
@@ -357,7 +359,7 @@ describe("bridge server", () => {
         {
           method: "GET",
           headers: { Origin: "https://evil.com" },
-          rejectUnauthorized: false,
+          ca: readFileSync(tls.certPath),
         },
         (res) => {
           res.resume();
@@ -386,7 +388,7 @@ describe("bridge server", () => {
     // Allowed origin succeeds
     const allowedSocket = new WebSocket(server.wsUrl, {
       headers: { Origin: "https://localhost:3000" },
-      rejectUnauthorized: false,
+      ca: readFileSync(tls.certPath),
     });
     await new Promise<void>((resolve, reject) => {
       allowedSocket.once("open", () => resolve());
@@ -397,7 +399,7 @@ describe("bridge server", () => {
     // Disallowed origin is rejected
     const evilSocket = new WebSocket(server.wsUrl, {
       headers: { Origin: "https://evil.com" },
-      rejectUnauthorized: false,
+      ca: readFileSync(tls.certPath),
     });
     const error = await new Promise<Error>((resolve) => {
       evilSocket.once("error", (err) => resolve(err));
