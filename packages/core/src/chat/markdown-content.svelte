@@ -7,7 +7,7 @@
   import { renderMarkdown, renderMarkdownSync } from "./markdown";
 
   interface Props {
-    text: string;
+    text?: string;
     isStreaming?: boolean;
     onLinkClick?: (context: LinkClickContext) => MaybePromise<LinkClickResult>;
   }
@@ -16,12 +16,12 @@
   const HIGHLIGHT_DELAY_MS = 160;
   const LARGE_STREAMING_TEXT_THRESHOLD = 4_000;
 
-  let { text, isStreaming = false, onLinkClick }: Props = $props();
+  let { text = "", isStreaming = false, onLinkClick }: Props = $props();
 
   let html = $state("");
 
   $effect(() => {
-    const currentText = text;
+    const currentText = text ?? "";
     const currentStreaming = isStreaming;
     let cancelled = false;
     let plainRenderTimeout: number | undefined;
@@ -102,6 +102,11 @@
       onLinkClick &&
       (await onLinkClick({ href, anchor: link, event })) === "handled"
     ) {
+      event.preventDefault();
+      return;
+    }
+
+    if (!href.startsWith("#") && link.protocol !== "https:") {
       event.preventDefault();
     }
   }

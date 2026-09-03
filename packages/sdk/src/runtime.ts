@@ -222,6 +222,10 @@ export class AgentRuntime {
     return this.state;
   }
 
+  setError(error: string | null): void {
+    this.update({ error });
+  }
+
   subscribe(listener: StateListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -855,6 +859,9 @@ export class AgentRuntime {
       await this.refreshNameMap();
     } catch (err) {
       console.error("[Runtime] Failed to load session:", err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.update({ error: errorMessage });
+      throw err;
     }
   }
 

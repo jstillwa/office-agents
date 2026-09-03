@@ -4,9 +4,11 @@ import type {
   CustomCommandsResult,
   SkillMeta,
   StorageNamespace,
+  TelemetrySink,
+  ToolPolicyConfig,
 } from "@office-agents/sdk";
 
-export type { StorageNamespace };
+export type { StorageNamespace, TelemetrySink, ToolPolicyConfig };
 
 import type { Component } from "svelte";
 
@@ -32,6 +34,9 @@ export interface AppAdapter {
   tools: AgentTool[] | ((ctx: AgentContext) => AgentTool[]);
   buildSystemPrompt: (skills: SkillMeta[], commandSnippets: string[]) => string;
   getDocumentId: () => Promise<string>;
+  getUserId?: () => Promise<string | null>;
+  telemetrySink?: TelemetrySink;
+  toolPolicy?: ToolPolicyConfig;
   getDocumentMetadata?: () => Promise<{
     metadata: object;
     nameMap?: Record<number, string>;

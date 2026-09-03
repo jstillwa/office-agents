@@ -1,4 +1,4 @@
-import DOMPurify from "dompurify";
+import DOMPurifyModule from "dompurify";
 import { Marked, type Token, type Tokens } from "marked";
 import { createJavaScriptRegexEngine, getSingletonHighlighter } from "shiki";
 
@@ -44,6 +44,27 @@ const highlighterPromise = getSingletonHighlighter({
   themes: [SHIKI_THEMES.light, SHIKI_THEMES.dark],
 });
 
+// Configure DOMPurify instance and hook
+const DOMPurify =
+  typeof (DOMPurifyModule as unknown as { sanitize?: unknown }).sanitize ===
+  "function"
+    ? DOMPurifyModule
+    : typeof window !== "undefined"
+      ? (DOMPurifyModule as unknown as (w: unknown) => typeof DOMPurifyModule)(
+          window,
+        )
+      : (DOMPurifyModule as unknown as () => typeof DOMPurifyModule)();
+
+DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+  if (node.tagName === "A" && node.hasAttribute("href")) {
+    const href = node.getAttribute("href") ?? "";
+    if (!href.startsWith("#")) {
+      node.setAttribute("target", "_blank");
+      node.setAttribute("rel", "noopener noreferrer");
+    }
+  }
+});
+
 const plainMarkdown = new Marked(MARKDOWN_OPTIONS);
 const highlightedMarkdown = new Marked({
   ...MARKDOWN_OPTIONS,
@@ -60,7 +81,9 @@ const highlightedMarkdown = new Marked({
     if (!language || codeToken.text.length > MAX_HIGHLIGHT_CODE_LENGTH) return;
 
     try {
-      codeToken.highlightedHtml = await highlightCode(codeToken.text, language);
+      codeToken.highlightedHtml = sanitizeRenderedHtml(
+        await highlightCode(codeToken.text, language),
+      );
     } catch {
       // Fall back to the default markdown renderer if highlighting fails.
     }
@@ -81,17 +104,20 @@ async function highlightCode(
   language: SupportedLanguage,
 ): Promise<string> {
   const highlighter = await highlighterPromise;
-  return highlighter.codeToHtml(code, {
+  const rawHtml = highlighter.codeToHtml(code, {
     lang: language,
     themes: SHIKI_THEMES,
   });
+  return sanitizeRenderedHtml(rawHtml);
 }
 
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function parseSingleFencedCodeBlock(text: string) {
@@ -108,24 +134,13 @@ function renderPlainCodeBlock(code: string): string {
   return `<pre><code>${escapeHtml(code)}</code></pre>`;
 }
 
-function sanitizeRenderedHtml(raw: string): string {
-  const sanitized = DOMPurify.sanitize(raw, {
+export function sanitizeRenderedHtml(raw: string): string {
+  return DOMPurify.sanitize(raw, {
     USE_PROFILES: { html: true },
     ADD_ATTR: ["target", "rel"],
+    ALLOWED_URI_REGEXP: /^(?:https:|#)/i,
+    FORBID_TAGS: ["img"],
   });
-
-  const template = document.createElement("template");
-  template.innerHTML = sanitized;
-
-  for (const link of template.content.querySelectorAll("a[href]")) {
-    const href = link.getAttribute("href") ?? "";
-    if (!href.startsWith("#")) {
-      link.setAttribute("target", "_blank");
-      link.setAttribute("rel", "noopener noreferrer");
-    }
-  }
-
-  return template.innerHTML;
 }
 
 export function renderMarkdownSync(
@@ -160,7 +175,9 @@ export async function renderMarkdown(
     }
 
     try {
-      return await highlightCode(fencedCodeBlock.code, language);
+      return sanitizeRenderedHtml(
+        await highlightCode(fencedCodeBlock.code, language),
+      );
     } catch {
       return renderPlainCodeBlock(fencedCodeBlock.code);
     }

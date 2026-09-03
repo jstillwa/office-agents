@@ -28,6 +28,7 @@ export {
   type SessionStats,
   stripEnrichment,
   type ToolCallStatus,
+  type UnsupportedPart,
 } from "./message-utils";
 // OAuth
 export {

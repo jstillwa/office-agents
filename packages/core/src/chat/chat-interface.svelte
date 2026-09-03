@@ -292,7 +292,14 @@
 
       <div class="flex items-center">
         {#if activeTab === "chat" && HeaderExtras}
-          <HeaderExtras />
+          <svelte:boundary>
+            <HeaderExtras />
+            {#snippet failed()}
+              <span class="inline-flex items-center text-[10px] text-(--chat-text-muted) opacity-70 border border-(--chat-border) rounded px-1">
+                ext error
+              </span>
+            {/snippet}
+          </svelte:boundary>
         {/if}
 
         {#if activeTab === "chat" && (adapter.showFollowModeToggle ?? true)}
@@ -340,7 +347,14 @@
   {#if activeTab === "chat"}
     <MessageList />
     {#if SelectionIndicator}
-      <SelectionIndicator />
+      <svelte:boundary>
+        <SelectionIndicator />
+        {#snippet failed()}
+          <div class="px-2 py-1 text-[10px] text-(--chat-text-muted) opacity-70">
+            [indicator error]
+          </div>
+        {/snippet}
+      </svelte:boundary>
     {/if}
     <ChatInput />
     {#if $runtimeState.providerConfig}

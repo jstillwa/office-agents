@@ -26,6 +26,7 @@
   let files = $state<VfsFile[]>([]);
   let loading = $state(false);
   let preview = $state<{ path: string; dataUrl: string } | null>(null);
+  let deleteError = $state<string | null>(null);
 
   function isUserFile(path: string): boolean {
     return !EXCLUDED_PREFIXES.some((prefix) => path.startsWith(prefix));
@@ -132,6 +133,7 @@
   }
 
   async function handleDelete(file: VfsFile) {
+    deleteError = null;
     try {
       await chat.context.deleteFile(file.path);
       if (file.path.startsWith("/home/user/uploads/")) {
@@ -140,6 +142,10 @@
       await refresh();
     } catch (error) {
       console.error("Delete failed:", error);
+      deleteError =
+        error instanceof Error
+          ? error.message
+          : `Failed to delete ${file.name}`;
     }
   }
 
@@ -178,6 +184,22 @@
       <RefreshCw size={12} class={loading ? "animate-spin" : ""} />
     </button>
   </div>
+
+  {#if deleteError}
+    <div
+      class="px-3 py-2 text-xs bg-red-500/10 text-(--chat-error) border-b border-(--chat-border) flex items-center justify-between"
+      role="alert"
+    >
+      <span class="truncate">{deleteError}</span>
+      <button
+        type="button"
+        onclick={() => (deleteError = null)}
+        class="text-xs ml-2 hover:underline shrink-0"
+      >
+        Dismiss
+      </button>
+    </div>
+  {/if}
 
   {#if files.length === 0}
     <div class="flex flex-col items-center justify-center gap-2 py-12 text-(--chat-text-muted)">
