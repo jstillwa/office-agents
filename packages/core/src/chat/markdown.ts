@@ -55,7 +55,9 @@ const DOMPurify =
         )
       : (DOMPurifyModule as unknown as () => typeof DOMPurifyModule)();
 
-if (typeof (DOMPurify as unknown as { addHook?: unknown }).addHook === "function") {
+if (
+  typeof (DOMPurify as unknown as { addHook?: unknown }).addHook === "function"
+) {
   DOMPurify.addHook("afterSanitizeAttributes", (node) => {
     if (node.tagName === "A" && node.hasAttribute("href")) {
       const href = node.getAttribute("href") ?? "";

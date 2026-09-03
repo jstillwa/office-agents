@@ -78,7 +78,7 @@ export function saveMcpConfig(ns: StorageNamespace, config: McpConfig): void {
   localStorage.setItem(mcpStorageKey(ns), JSON.stringify(config));
 }
 
-function parseSseForId(text: string, id: number): unknown {
+export function parseSseForId(text: string, id: number): unknown {
   let last: unknown;
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.startsWith("data:") ? line.slice(5).trim() : "";
@@ -115,7 +115,7 @@ export function assertSafeMcpUrl(urlStr: string): void {
   );
 }
 
-class McpClient {
+export class McpClient {
   private url: string;
   private headers: Record<string, string>;
   private sessionId: string | null = null;
