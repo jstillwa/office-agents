@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { execSync } from "child_process";
-import { readFileSync, writeFileSync, existsSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
+import { formatFourPartVersion, updateManifestVersion } from "./release-utils.mjs";
 
 const APPS = {
 	excel: { dir: "packages/excel", tagPrefix: "excel-v" },
@@ -66,6 +67,20 @@ function updateChangelogForRelease(version) {
 	console.log(`  Updated ${changelogPath}`);
 }
 
+function updateManifestsForRelease(version) {
+	const fourPartVersion = formatFourPartVersion(version);
+	const manifestFiles = ["manifest.xml", "manifest.prod.xml"];
+	for (const fileName of manifestFiles) {
+		const filePath = join(app.dir, fileName);
+		if (existsSync(filePath)) {
+			const content = readFileSync(filePath, "utf-8");
+			const updated = updateManifestVersion(content, fourPartVersion);
+			writeFileSync(filePath, updated);
+			console.log(`  Updated ${filePath} version to ${fourPartVersion}`);
+		}
+	}
+}
+
 // Main flow
 console.log(`\n=== Release ${appName} (${bumpType}) ===\n`);
 
@@ -79,18 +94,28 @@ if (status && status.trim()) {
 }
 console.log("  Working directory clean\n");
 
-// 2. Bump version (no git tag, we'll tag ourselves with the prefix)
+// 2. Pre-flight validation
+console.log("Running pre-flight validation (pnpm check && pnpm test && pnpm build)...");
+run("pnpm check && pnpm test && pnpm build");
+console.log("  Pre-flight validation passed\n");
+
+// 3. Bump version (no git tag, we'll tag ourselves with the prefix)
 console.log(`Bumping version (${bumpType}) in ${app.dir}...`);
 run(`pnpm --filter ./${app.dir} exec npm version ${bumpType} --no-git-tag-version`);
 const version = getVersion();
 console.log(`  New version: ${version}\n`);
 
-// 3. Update changelog
+// 4. Update manifests (Office apps only)
+console.log("Updating manifest versions...");
+updateManifestsForRelease(version);
+console.log();
+
+// 5. Update changelog
 console.log("Updating CHANGELOG.md...");
 updateChangelogForRelease(version);
 console.log();
 
-// 4. Commit and tag
+// 6. Commit and tag
 const tag = `${app.tagPrefix}${version}`;
 console.log(`Committing and tagging as ${tag}...`);
 run("git add .");
@@ -98,7 +123,7 @@ run(`git commit -m "${appName}: release ${tag}"`);
 run(`git tag ${tag}`);
 console.log();
 
-// 5. Push
+// 7. Push
 console.log("Pushing to remote...");
 run("git push");
 run(`git push origin ${tag}`);
