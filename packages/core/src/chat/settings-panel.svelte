@@ -2,8 +2,10 @@
   import {
     API_TYPES,
     buildAuthorizationUrl,
+    ENTERPRISE_GATEWAY_URL,
     exchangeOAuthCode,
     generatePKCE,
+    isEnterprise,
     listFetchProviders,
     listImageSearchProviders,
     listSearchProviders,
@@ -46,16 +48,25 @@
   let installing = $state(false);
 
   const saved = loadSavedConfig(ns);
-  let provider = $state(saved?.provider || "");
+  const isEnterpriseMode = isEnterprise();
+  let provider = $state(saved?.provider || (isEnterpriseMode ? "custom" : ""));
   let apiKey = $state(saved?.apiKey || "");
-  let model = $state(saved?.model || "");
+  let model = $state(
+    saved?.model || (isEnterpriseMode ? "corporate-default" : ""),
+  );
   let showKey = $state(false);
-  let useProxy = $state(saved?.useProxy !== false);
-  let proxyUrl = $state(saved?.proxyUrl || "");
+  let useProxy = $state(
+    isEnterpriseMode ? false : saved?.useProxy !== false,
+  );
+  let proxyUrl = $state(isEnterpriseMode ? "" : saved?.proxyUrl || "");
   let thinking = $state<ThinkingLevel>(saved?.thinking || "none");
   let apiType = $state(saved?.apiType || "openai-completions");
-  let customBaseUrl = $state(saved?.customBaseUrl || "");
-  let authMethod = $state<"apikey" | "oauth">(saved?.authMethod || "apikey");
+  let customBaseUrl = $state(
+    saved?.customBaseUrl || (isEnterpriseMode ? ENTERPRISE_GATEWAY_URL : ""),
+  );
+  let authMethod = $state<"apikey" | "oauth" | "sso">(
+    saved?.authMethod || (isEnterpriseMode ? "sso" : "apikey"),
+  );
 
   const savedWeb = loadWebConfig(ns);
   let webSearchProvider = $state(savedWeb.searchProvider);
@@ -129,8 +140,12 @@
   const needsExaKey = $derived(
     webSearchProvider === "exa" || webFetchProvider === "exa",
   );
-  const isConfigured = $derived($runtimeState.providerConfig !== null);
-  const showApiKeyInput = $derived(!(hasOAuth && authMethod === "oauth"));
+  const isConfigured = $derived(
+    isEnterpriseMode || $runtimeState.providerConfig !== null,
+  );
+  const showApiKeyInput = $derived(
+    !isEnterpriseMode && !(hasOAuth && authMethod === "oauth"),
+  );
 
   const inputStyle =
     "border-radius: var(--chat-radius); font-family: var(--chat-font-mono)";
@@ -145,18 +160,28 @@
       thinking: ThinkingLevel;
       apiType: string;
       customBaseUrl: string;
-      authMethod: "apikey" | "oauth";
+      authMethod: "apikey" | "oauth" | "sso";
     }>,
   ) {
-    const nextProvider = updates.provider ?? provider;
-    const nextApiKey = updates.apiKey ?? apiKey;
+    const nextProvider = isEnterpriseMode
+      ? "custom"
+      : (updates.provider ?? provider);
+    const nextApiKey = isEnterpriseMode ? "" : (updates.apiKey ?? apiKey);
     const nextModel = updates.model ?? model;
-    const nextUseProxy = updates.useProxy ?? useProxy;
-    const nextProxyUrl = updates.proxyUrl ?? proxyUrl;
+    const nextUseProxy = isEnterpriseMode
+      ? false
+      : (updates.useProxy ?? useProxy);
+    const nextProxyUrl = isEnterpriseMode
+      ? ""
+      : (updates.proxyUrl ?? proxyUrl);
     const nextThinking = updates.thinking ?? thinking;
     const nextApiType = updates.apiType ?? apiType;
-    const nextCustomBaseUrl = updates.customBaseUrl ?? customBaseUrl;
-    const nextAuthMethod = updates.authMethod ?? authMethod;
+    const nextCustomBaseUrl = isEnterpriseMode
+      ? customBaseUrl || ENTERPRISE_GATEWAY_URL
+      : (updates.customBaseUrl ?? customBaseUrl);
+    const nextAuthMethod = isEnterpriseMode
+      ? "sso"
+      : (updates.authMethod ?? authMethod);
 
     provider = nextProvider;
     apiKey = nextApiKey;
@@ -168,8 +193,9 @@
     customBaseUrl = nextCustomBaseUrl;
     authMethod = nextAuthMethod;
 
-    const isValid =
-      nextProvider === "custom"
+    const isValid = isEnterpriseMode
+      ? Boolean(nextModel)
+      : nextProvider === "custom"
         ? Boolean(
             nextProvider &&
               nextApiType &&
@@ -275,7 +301,7 @@
         challenge,
         verifier,
       );
-      window.open(url, "_blank");
+      window.open(url, "_blank", "noopener,noreferrer");
       oauthFlow = { step: "awaiting-code", verifier, oauthState };
     } catch (error) {
       oauthFlow = {
@@ -383,278 +409,335 @@
     </div>
 
     <div class="space-y-4">
-      <label class="block">
-        <span class="block text-xs text-(--chat-text-secondary) mb-1.5">
-          Provider
-        </span>
-        <select
-          value={provider}
-          onchange={(event) =>
-            handleProviderChange((event.currentTarget as HTMLSelectElement).value)}
-          class="w-full bg-(--chat-input-bg) text-(--chat-text-primary) text-sm px-3 py-2 border border-(--chat-border) focus:outline-none focus:border-(--chat-border-active)"
-          style={inputStyle}
-        >
-          <option value="">Select provider...</option>
-          {#each chat.availableProviders as availableProvider (availableProvider)}
-            <option value={availableProvider}>{availableProvider}</option>
-          {/each}
-          <option disabled>──────────</option>
-          <option value="custom">Custom Endpoint</option>
-        </select>
-      </label>
-
-      {#if isCustom}
-        <label class="block">
+      {#if isEnterpriseMode}
+        <div>
           <span class="block text-xs text-(--chat-text-secondary) mb-1.5">
-            API Type
+            Corporate Gateway
           </span>
-          <select
-            value={apiType}
-            onchange={(event) =>
-              updateAndSync({
-                apiType: (event.currentTarget as HTMLSelectElement).value,
-              })}
-            class="w-full bg-(--chat-input-bg) text-(--chat-text-primary) text-sm px-3 py-2 border border-(--chat-border) focus:outline-none focus:border-(--chat-border-active)"
+          <div
+            class="flex items-center gap-2 px-3 py-2 bg-(--chat-input-bg) border border-(--chat-border)"
             style={inputStyle}
           >
-            {#each API_TYPES as type (type.id)}
-              <option value={type.id}>{type.name}</option>
-            {/each}
-          </select>
-          <p class="text-[10px] text-(--chat-text-muted) mt-1">
-            {API_TYPES.find((type) => type.id === apiType)?.hint}
+            <Check size={12} class="text-(--chat-success)" />
+            <span class="text-xs text-(--chat-text-primary)">
+              Corporate Gateway Connected
+            </span>
+          </div>
+          <p class="text-[10px] text-(--chat-text-muted) mt-1 truncate">
+            {customBaseUrl || ENTERPRISE_GATEWAY_URL}
           </p>
-        </label>
+        </div>
 
-        <label class="block">
-          <span class="block text-xs text-(--chat-text-secondary) mb-1.5">
-            Base URL
-          </span>
-          <input
-            type="text"
-            bind:value={customBaseUrl}
-            oninput={() => updateAndSync({ customBaseUrl })}
-            placeholder="https://api.openai.com/v1"
-            class="w-full bg-(--chat-input-bg) text-(--chat-text-primary) text-sm px-3 py-2 border border-(--chat-border) placeholder:text-(--chat-text-muted) focus:outline-none focus:border-(--chat-border-active)"
-            style={inputStyle}
-          />
-          <p class="text-[10px] text-(--chat-text-muted) mt-1">
-            The API endpoint URL for your provider
-          </p>
-        </label>
-
-        <label class="block">
-          <span class="block text-xs text-(--chat-text-secondary) mb-1.5">
-            Model ID
-          </span>
-          <input
-            type="text"
-            bind:value={model}
-            oninput={() => updateAndSync({ model })}
-            placeholder="gpt-4o"
-            class="w-full bg-(--chat-input-bg) text-(--chat-text-primary) text-sm px-3 py-2 border border-(--chat-border) placeholder:text-(--chat-text-muted) focus:outline-none focus:border-(--chat-border-active)"
-            style={inputStyle}
-          />
-        </label>
-      {/if}
-
-      {#if !isCustom && provider}
-        <label class="block">
+        <div>
           <span class="block text-xs text-(--chat-text-secondary) mb-1.5">
             Model
           </span>
-          <select
-            value={model}
-            onchange={(event) =>
-              updateAndSync({ model: (event.currentTarget as HTMLSelectElement).value })}
-            class="w-full bg-(--chat-input-bg) text-(--chat-text-primary) text-sm px-3 py-2 border border-(--chat-border) focus:outline-none focus:border-(--chat-border-active) disabled:opacity-50 disabled:cursor-not-allowed"
+          <div
+            class="px-3 py-2 bg-(--chat-input-bg) border border-(--chat-border) text-xs text-(--chat-text-primary)"
             style={inputStyle}
           >
-            <option value="">Select model...</option>
-            {#each models as availableModel (availableModel.id)}
-              <option value={availableModel.id}>{availableModel.name}</option>
+            {model || "corporate-default"}
+          </div>
+        </div>
+
+        <div>
+          <span class="block text-xs text-(--chat-text-secondary) mb-1.5">
+            SSO User Identity
+          </span>
+          <div
+            class="flex items-center gap-2 px-3 py-2 bg-(--chat-input-bg) border border-(--chat-border)"
+            style={inputStyle}
+          >
+            <span class="w-2 h-2 rounded-full bg-(--chat-success)"></span>
+            <span class="text-xs text-(--chat-text-primary) truncate">
+              {$runtimeState.userId || "Authenticated via Office SSO"}
+            </span>
+          </div>
+          <p class="text-[10px] text-(--chat-text-muted) mt-1">
+            Entra ID bearer token automatically acquired and refreshed
+          </p>
+        </div>
+      {:else}
+        <label class="block">
+          <span class="block text-xs text-(--chat-text-secondary) mb-1.5">
+            Provider
+          </span>
+          <select
+            value={provider}
+            onchange={(event) =>
+              handleProviderChange(
+                (event.currentTarget as HTMLSelectElement).value,
+              )}
+            class="w-full bg-(--chat-input-bg) text-(--chat-text-primary) text-sm px-3 py-2 border border-(--chat-border) focus:outline-none focus:border-(--chat-border-active)"
+            style={inputStyle}
+          >
+            <option value="">Select provider...</option>
+            {#each chat.availableProviders as availableProvider (availableProvider)}
+              <option value={availableProvider}>{availableProvider}</option>
             {/each}
+            <option disabled>──────────</option>
+            <option value="custom">Custom Endpoint</option>
           </select>
         </label>
-      {/if}
 
-      {#if hasOAuth}
-        <div>
-          <span class="block text-xs text-(--chat-text-secondary) mb-1.5">
-            Authentication
-          </span>
-          <div class="flex gap-1">
-            <button
-              type="button"
-              onclick={() => handleAuthMethodChange("apikey")}
-              class={`flex-1 py-1.5 text-xs border transition-colors ${authMethod === "apikey" ? "bg-(--chat-accent) border-(--chat-accent) text-white" : "bg-(--chat-input-bg) border-(--chat-border) text-(--chat-text-secondary) hover:border-(--chat-border-active)"}`}
-              style="border-radius: var(--chat-radius)"
+        {#if isCustom}
+          <label class="block">
+            <span class="block text-xs text-(--chat-text-secondary) mb-1.5">
+              API Type
+            </span>
+            <select
+              value={apiType}
+              onchange={(event) =>
+                updateAndSync({
+                  apiType: (event.currentTarget as HTMLSelectElement).value,
+                })}
+              class="w-full bg-(--chat-input-bg) text-(--chat-text-primary) text-sm px-3 py-2 border border-(--chat-border) focus:outline-none focus:border-(--chat-border-active)"
+              style={inputStyle}
             >
-              API Key
-            </button>
-            <button
-              type="button"
-              onclick={() => handleAuthMethodChange("oauth")}
-              class={`flex-1 py-1.5 text-xs border transition-colors ${authMethod === "oauth" ? "bg-(--chat-accent) border-(--chat-accent) text-white" : "bg-(--chat-input-bg) border-(--chat-border) text-(--chat-text-secondary) hover:border-(--chat-border-active)"}`}
-              style="border-radius: var(--chat-radius)"
-            >
-              {OAUTH_PROVIDERS[provider]?.label ?? "OAuth"}
-            </button>
-          </div>
-        </div>
-      {/if}
+              {#each API_TYPES as type (type.id)}
+                <option value={type.id}>{type.name}</option>
+              {/each}
+            </select>
+            <p class="text-[10px] text-(--chat-text-muted) mt-1">
+              {API_TYPES.find((type) => type.id === apiType)?.hint}
+            </p>
+          </label>
 
-      {#if hasOAuth && authMethod === "oauth"}
-        <div class="space-y-2">
-          {#if oauthFlow.step === "idle"}
-            <button
-              type="button"
-              onclick={startOAuthLogin}
-              class="w-full flex items-center justify-center gap-2 px-3 py-2.5 text-xs bg-(--chat-input-bg) border border-(--chat-border) text-(--chat-text-primary) hover:border-(--chat-accent) hover:text-(--chat-accent) transition-colors"
-              style="border-radius: var(--chat-radius)"
-            >
-              <ExternalLink size={12} />
-              {OAUTH_PROVIDERS[provider]?.buttonText ?? "Login"}
-            </button>
-          {:else if oauthFlow.step === "awaiting-code"}
-            <div class="space-y-2">
-              <p class="text-[10px] text-(--chat-text-muted)">
-                {provider === "openai-codex"
-                  ? "Complete login in the opened tab. The page will redirect to localhost and fail — copy the full URL from your browser's address bar and paste it below:"
-                  : "Authorize in the opened tab, then paste the code shown on the redirect page:"}
-              </p>
-              <div class="flex gap-1">
-                <input
-                  type="text"
-                  bind:value={oauthCodeInput}
-                  placeholder={provider === "openai-codex" ? "Paste the full redirect URL here" : "Paste code#state here"}
-                  class="flex-1 bg-(--chat-input-bg) text-(--chat-text-primary) text-sm px-3 py-2 border border-(--chat-border) placeholder:text-(--chat-text-muted) focus:outline-none focus:border-(--chat-border-active)"
-                  style={inputStyle}
-                  onkeydown={(event) => event.key === "Enter" && submitOAuthCode()}
-                />
-                <button
-                  type="button"
-                  onclick={submitOAuthCode}
-                  disabled={!oauthCodeInput.trim()}
-                  class="px-3 py-2 text-xs bg-(--chat-accent) text-white border border-(--chat-accent) hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  style="border-radius: var(--chat-radius)"
-                >
-                  Submit
-                </button>
-              </div>
-              <p class="text-[10px] text-(--chat-text-muted)">
-                Requires CORS proxy to be enabled for token exchange.
-              </p>
-            </div>
-          {:else if oauthFlow.step === "exchanging"}
-            <div
-              class="px-3 py-2.5 text-xs text-(--chat-text-muted) bg-(--chat-input-bg) border border-(--chat-border)"
-              style="border-radius: var(--chat-radius)"
-            >
-              Exchanging authorization code…
-            </div>
-          {:else if oauthFlow.step === "connected"}
-            <div
-              class="flex items-center justify-between px-3 py-2.5 bg-(--chat-input-bg) border border-(--chat-border)"
-              style="border-radius: var(--chat-radius)"
-            >
-              <div class="flex items-center gap-2 text-xs">
-                <Check size={12} class="text-(--chat-success)" />
-                <span class="text-(--chat-text-secondary)">
-                  Connected via OAuth
-                </span>
-              </div>
-              <button
-                type="button"
-                onclick={logoutOAuth}
-                class="flex items-center gap-1 text-[10px] text-(--chat-text-muted) hover:text-(--chat-error) transition-colors"
-              >
-                <LogOut size={10} />
-                Logout
-              </button>
-            </div>
-          {:else if oauthFlow.step === "error"}
-            <div class="space-y-2">
-              <div
-                class="px-3 py-2 text-xs text-(--chat-error) bg-(--chat-input-bg) border border-(--chat-error)/30"
-                style="border-radius: var(--chat-radius)"
-              >
-                {oauthFlow.message}
-              </div>
-              <button
-                type="button"
-                onclick={() => (oauthFlow = { step: "idle" })}
-                class="text-[10px] text-(--chat-text-muted) hover:text-(--chat-text-secondary) transition-colors"
-              >
-                Try again
-              </button>
-            </div>
-          {/if}
-        </div>
-      {/if}
-
-      {#if showApiKeyInput}
-        <label class="block">
-          <span class="block text-xs text-(--chat-text-secondary) mb-1.5">
-            API Key
-          </span>
-          <div class="relative">
+          <label class="block">
+            <span class="block text-xs text-(--chat-text-secondary) mb-1.5">
+              Base URL
+            </span>
             <input
-              type={showKey ? "text" : "password"}
-              bind:value={apiKey}
-              oninput={() => updateAndSync({ apiKey })}
-              placeholder="Enter your API key"
-              class="w-full bg-(--chat-input-bg) text-(--chat-text-primary) text-sm px-3 py-2 pr-10 border border-(--chat-border) placeholder:text-(--chat-text-muted) focus:outline-none focus:border-(--chat-border-active)"
+              type="text"
+              bind:value={customBaseUrl}
+              oninput={() => updateAndSync({ customBaseUrl })}
+              placeholder="https://api.openai.com/v1"
+              class="w-full bg-(--chat-input-bg) text-(--chat-text-primary) text-sm px-3 py-2 border border-(--chat-border) placeholder:text-(--chat-text-muted) focus:outline-none focus:border-(--chat-border-active)"
               style={inputStyle}
             />
-            <button
-              type="button"
-              onclick={() => (showKey = !showKey)}
-              class="absolute right-2 top-1/2 -translate-y-1/2 text-(--chat-text-muted) hover:text-(--chat-text-secondary)"
+            <p class="text-[10px] text-(--chat-text-muted) mt-1">
+              The API endpoint URL for your provider
+            </p>
+          </label>
+
+          <label class="block">
+            <span class="block text-xs text-(--chat-text-secondary) mb-1.5">
+              Model ID
+            </span>
+            <input
+              type="text"
+              bind:value={model}
+              oninput={() => updateAndSync({ model })}
+              placeholder="gpt-4o"
+              class="w-full bg-(--chat-input-bg) text-(--chat-text-primary) text-sm px-3 py-2 border border-(--chat-border) placeholder:text-(--chat-text-muted) focus:outline-none focus:border-(--chat-border-active)"
+              style={inputStyle}
+            />
+          </label>
+        {/if}
+
+        {#if !isCustom && provider}
+          <label class="block">
+            <span class="block text-xs text-(--chat-text-secondary) mb-1.5">
+              Model
+            </span>
+            <select
+              value={model}
+              onchange={(event) =>
+                updateAndSync({
+                  model: (event.currentTarget as HTMLSelectElement).value,
+                })}
+              class="w-full bg-(--chat-input-bg) text-(--chat-text-primary) text-sm px-3 py-2 border border-(--chat-border) focus:outline-none focus:border-(--chat-border-active) disabled:opacity-50 disabled:cursor-not-allowed"
+              style={inputStyle}
             >
-              {#if showKey}
-                <EyeOff size={14} />
-              {:else}
-                <Eye size={14} />
-              {/if}
-            </button>
+              <option value="">Select model...</option>
+              {#each models as availableModel (availableModel.id)}
+                <option value={availableModel.id}>{availableModel.name}</option>
+              {/each}
+            </select>
+          </label>
+        {/if}
+
+        {#if hasOAuth}
+          <div>
+            <span class="block text-xs text-(--chat-text-secondary) mb-1.5">
+              Authentication
+            </span>
+            <div class="flex gap-1">
+              <button
+                type="button"
+                onclick={() => handleAuthMethodChange("apikey")}
+                class={`flex-1 py-1.5 text-xs border transition-colors ${authMethod === "apikey" ? "bg-(--chat-accent) border-(--chat-accent) text-white" : "bg-(--chat-input-bg) border-(--chat-border) text-(--chat-text-secondary) hover:border-(--chat-border-active)"}`}
+                style="border-radius: var(--chat-radius)"
+              >
+                API Key
+              </button>
+              <button
+                type="button"
+                onclick={() => handleAuthMethodChange("oauth")}
+                class={`flex-1 py-1.5 text-xs border transition-colors ${authMethod === "oauth" ? "bg-(--chat-accent) border-(--chat-accent) text-white" : "bg-(--chat-input-bg) border-(--chat-border) text-(--chat-text-secondary) hover:border-(--chat-border-active)"}`}
+                style="border-radius: var(--chat-radius)"
+              >
+                {OAUTH_PROVIDERS[provider]?.label ?? "OAuth"}
+              </button>
+            </div>
           </div>
-        </label>
-      {/if}
+        {/if}
 
-      <div class="flex items-center justify-between">
-        <div>
-          <span class="text-xs text-(--chat-text-secondary)">
-            CORS Proxy
-          </span>
-          <p class="text-[10px] text-(--chat-text-muted) mt-0.5">
-            Required for Anthropic and some providers
-          </p>
+        {#if hasOAuth && authMethod === "oauth"}
+          <div class="space-y-2">
+            {#if oauthFlow.step === "idle"}
+              <button
+                type="button"
+                onclick={startOAuthLogin}
+                class="w-full flex items-center justify-center gap-2 px-3 py-2.5 text-xs bg-(--chat-input-bg) border border-(--chat-border) text-(--chat-text-primary) hover:border-(--chat-accent) hover:text-(--chat-accent) transition-colors"
+                style="border-radius: var(--chat-radius)"
+              >
+                <ExternalLink size={12} />
+                {OAUTH_PROVIDERS[provider]?.buttonText ?? "Login"}
+              </button>
+            {:else if oauthFlow.step === "awaiting-code"}
+              <div class="space-y-2">
+                <p class="text-[10px] text-(--chat-text-muted)">
+                  {provider === "openai-codex"
+                    ? "Complete login in the opened tab. The page will redirect to localhost and fail — copy the full URL from your browser's address bar and paste it below:"
+                    : "Authorize in the opened tab, then paste the code shown on the redirect page:"}
+                </p>
+                <div class="flex gap-1">
+                  <input
+                    type="text"
+                    bind:value={oauthCodeInput}
+                    placeholder={provider === "openai-codex"
+                      ? "Paste the full redirect URL here"
+                      : "Paste code#state here"}
+                    class="flex-1 bg-(--chat-input-bg) text-(--chat-text-primary) text-sm px-3 py-2 border border-(--chat-border) placeholder:text-(--chat-text-muted) focus:outline-none focus:border-(--chat-border-active)"
+                    style={inputStyle}
+                    onkeydown={(event) =>
+                      event.key === "Enter" && submitOAuthCode()}
+                  />
+                  <button
+                    type="button"
+                    onclick={submitOAuthCode}
+                    disabled={!oauthCodeInput.trim()}
+                    class="px-3 py-2 text-xs bg-(--chat-accent) text-white border border-(--chat-accent) hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    style="border-radius: var(--chat-radius)"
+                  >
+                    Submit
+                  </button>
+                </div>
+                <p class="text-[10px] text-(--chat-text-muted)">
+                  Requires CORS proxy to be enabled for token exchange.
+                </p>
+              </div>
+            {:else if oauthFlow.step === "exchanging"}
+              <div
+                class="px-3 py-2.5 text-xs text-(--chat-text-muted) bg-(--chat-input-bg) border border-(--chat-border)"
+                style="border-radius: var(--chat-radius)"
+              >
+                Exchanging authorization code…
+              </div>
+            {:else if oauthFlow.step === "connected"}
+              <div
+                class="flex items-center justify-between px-3 py-2.5 bg-(--chat-input-bg) border border-(--chat-border)"
+                style="border-radius: var(--chat-radius)"
+              >
+                <div class="flex items-center gap-2 text-xs">
+                  <Check size={12} class="text-(--chat-success)" />
+                  <span class="text-(--chat-text-secondary)">
+                    Connected via OAuth
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onclick={logoutOAuth}
+                  class="flex items-center gap-1 text-[10px] text-(--chat-text-muted) hover:text-(--chat-error) transition-colors"
+                >
+                  <LogOut size={10} />
+                  Logout
+                </button>
+              </div>
+            {:else if oauthFlow.step === "error"}
+              <div class="space-y-2">
+                <div
+                  class="px-3 py-2 text-xs text-(--chat-error) bg-(--chat-input-bg) border border-(--chat-error)/30"
+                  style="border-radius: var(--chat-radius)"
+                >
+                  {oauthFlow.message}
+                </div>
+                <button
+                  type="button"
+                  onclick={() => (oauthFlow = { step: "idle" })}
+                  class="text-[10px] text-(--chat-text-muted) hover:text-(--chat-text-secondary) transition-colors"
+                >
+                  Try again
+                </button>
+              </div>
+            {/if}
+          </div>
+        {/if}
+
+        {#if showApiKeyInput}
+          <label class="block">
+            <span class="block text-xs text-(--chat-text-secondary) mb-1.5">
+              API Key
+            </span>
+            <div class="relative">
+              <input
+                type={showKey ? "text" : "password"}
+                bind:value={apiKey}
+                oninput={() => updateAndSync({ apiKey })}
+                placeholder="Enter your API key"
+                class="w-full bg-(--chat-input-bg) text-(--chat-text-primary) text-sm px-3 py-2 pr-10 border border-(--chat-border) placeholder:text-(--chat-text-muted) focus:outline-none focus:border-(--chat-border-active)"
+                style={inputStyle}
+              />
+              <button
+                type="button"
+                onclick={() => (showKey = !showKey)}
+                class="absolute right-2 top-1/2 -translate-y-1/2 text-(--chat-text-muted) hover:text-(--chat-text-secondary)"
+              >
+                {#if showKey}
+                  <EyeOff size={14} />
+                {:else}
+                  <Eye size={14} />
+                {/if}
+              </button>
+            </div>
+          </label>
+        {/if}
+
+        <div class="flex items-center justify-between">
+          <div>
+            <span class="text-xs text-(--chat-text-secondary)">
+              CORS Proxy
+            </span>
+            <p class="text-[10px] text-(--chat-text-muted) mt-0.5">
+              Required for Anthropic and some providers
+            </p>
+          </div>
+          {@render toggleSwitch(
+            useProxy,
+            () => updateAndSync({ useProxy: !useProxy }),
+            useProxy ? "Disable CORS proxy" : "Enable CORS proxy",
+          )}
         </div>
-        {@render toggleSwitch(
-          useProxy,
-          () => updateAndSync({ useProxy: !useProxy }),
-          useProxy ? "Disable CORS proxy" : "Enable CORS proxy",
-        )}
-      </div>
 
-      {#if useProxy}
-        <label class="block">
-          <span class="block text-xs text-(--chat-text-secondary) mb-1.5">
-            Proxy URL
-          </span>
-          <input
-            type="text"
-            bind:value={proxyUrl}
-            oninput={() => updateAndSync({ proxyUrl })}
-            placeholder="https://your-proxy.com/proxy"
-            class="w-full bg-(--chat-input-bg) text-(--chat-text-primary) text-sm px-3 py-2 border border-(--chat-border) placeholder:text-(--chat-text-muted) focus:outline-none focus:border-(--chat-border-active)"
-            style={inputStyle}
-          />
-          <p class="text-[10px] text-(--chat-text-muted) mt-1">
-            Your proxy should accept ?url=encoded_url format
-          </p>
-        </label>
+        {#if useProxy}
+          <label class="block">
+            <span class="block text-xs text-(--chat-text-secondary) mb-1.5">
+              Proxy URL
+            </span>
+            <input
+              type="text"
+              bind:value={proxyUrl}
+              oninput={() => updateAndSync({ proxyUrl })}
+              placeholder="https://your-proxy.com/proxy"
+              class="w-full bg-(--chat-input-bg) text-(--chat-text-primary) text-sm px-3 py-2 border border-(--chat-border) placeholder:text-(--chat-text-muted) focus:outline-none focus:border-(--chat-border-active)"
+              style={inputStyle}
+            />
+            <p class="text-[10px] text-(--chat-text-muted) mt-1">
+              Your proxy should accept ?url=encoded_url format
+            </p>
+          </label>
+        {/if}
       {/if}
 
       <div>
@@ -768,49 +851,51 @@
           </p>
         </label>
 
-        {#if needsBraveKey}
-          {@render apiKeyField("Brave API Key", braveApiKey, (v) => { braveApiKey = v; updateWebSettings({ braveApiKey }); }, "Required for Brave search")}
-        {/if}
+        {#if !isEnterpriseMode}
+          {#if needsBraveKey}
+            {@render apiKeyField("Brave API Key", braveApiKey, (v) => { braveApiKey = v; updateWebSettings({ braveApiKey }); }, "Required for Brave search")}
+          {/if}
 
-        {#if needsSerperKey}
-          {@render apiKeyField("Serper API Key", serperApiKey, (v) => { serperApiKey = v; updateWebSettings({ serperApiKey }); }, "Required for Serper search")}
-        {/if}
+          {#if needsSerperKey}
+            {@render apiKeyField("Serper API Key", serperApiKey, (v) => { serperApiKey = v; updateWebSettings({ serperApiKey }); }, "Required for Serper search")}
+          {/if}
 
-        {#if needsExaKey}
-          {@render apiKeyField("Exa API Key", exaApiKey, (v) => { exaApiKey = v; updateWebSettings({ exaApiKey }); }, "Required for Exa search/fetch")}
-        {/if}
+          {#if needsExaKey}
+            {@render apiKeyField("Exa API Key", exaApiKey, (v) => { exaApiKey = v; updateWebSettings({ exaApiKey }); }, "Required for Exa search/fetch")}
+          {/if}
 
-        <div class="pt-1">
-          <button
-            type="button"
-            onclick={() => (showAdvancedWebKeys = !showAdvancedWebKeys)}
-            class="inline-flex items-center gap-1.5 text-xs text-(--chat-text-secondary) hover:text-(--chat-text-primary)"
-          >
-            {#if showAdvancedWebKeys}
-              <ChevronUp size={12} />
-            {:else}
-              <ChevronDown size={12} />
-            {/if}
-            <span>
-              {showAdvancedWebKeys ? "Hide" : "Show"} advanced saved API keys
-            </span>
-          </button>
-        </div>
-
-        {#if showAdvancedWebKeys}
-          <div class="space-y-3 border border-(--chat-border) p-3 bg-(--chat-input-bg)">
-            {#if !needsBraveKey}
-              {@render apiKeyField("Brave API Key", braveApiKey, (v) => { braveApiKey = v; updateWebSettings({ braveApiKey }); }, "Optional", true)}
-            {/if}
-
-            {#if !needsSerperKey}
-              {@render apiKeyField("Serper API Key", serperApiKey, (v) => { serperApiKey = v; updateWebSettings({ serperApiKey }); }, "Optional", true)}
-            {/if}
-
-            {#if !needsExaKey}
-              {@render apiKeyField("Exa API Key", exaApiKey, (v) => { exaApiKey = v; updateWebSettings({ exaApiKey }); }, "Optional", true)}
-            {/if}
+          <div class="pt-1">
+            <button
+              type="button"
+              onclick={() => (showAdvancedWebKeys = !showAdvancedWebKeys)}
+              class="inline-flex items-center gap-1.5 text-xs text-(--chat-text-secondary) hover:text-(--chat-text-primary)"
+            >
+              {#if showAdvancedWebKeys}
+                <ChevronUp size={12} />
+              {:else}
+                <ChevronDown size={12} />
+              {/if}
+              <span>
+                {showAdvancedWebKeys ? "Hide" : "Show"} advanced saved API keys
+              </span>
+            </button>
           </div>
+
+          {#if showAdvancedWebKeys}
+            <div class="space-y-3 border border-(--chat-border) p-3 bg-(--chat-input-bg)">
+              {#if !needsBraveKey}
+                {@render apiKeyField("Brave API Key", braveApiKey, (v) => { braveApiKey = v; updateWebSettings({ braveApiKey }); }, "Optional", true)}
+              {/if}
+
+              {#if !needsSerperKey}
+                {@render apiKeyField("Serper API Key", serperApiKey, (v) => { serperApiKey = v; updateWebSettings({ serperApiKey }); }, "Optional", true)}
+              {/if}
+
+              {#if !needsExaKey}
+                {@render apiKeyField("Exa API Key", exaApiKey, (v) => { exaApiKey = v; updateWebSettings({ exaApiKey }); }, "Optional", true)}
+              {/if}
+            </div>
+          {/if}
         {/if}
       </div>
     </div>
@@ -1004,21 +1089,27 @@
     <div class="text-[10px] uppercase tracking-widest text-(--chat-text-muted) mb-2">
       about
     </div>
-    <p class="text-xs text-(--chat-text-secondary) leading-relaxed">
-      {adapter.appName || "This app"} uses your own API key to connect to LLM
-      providers. Your key is stored locally in the browser.
-    </p>
-    {#if isCustom}
-      <p class="text-xs text-(--chat-text-muted) leading-relaxed mt-2">
-        Custom Endpoint: Point to any OpenAI-compatible API (Ollama, vLLM,
-        LMStudio) or other supported API types.
+    {#if isEnterpriseMode}
+      <p class="text-xs text-(--chat-text-secondary) leading-relaxed">
+        {adapter.appName || "This app"} connects to your corporate LLM gateway authenticated via Office SSO. Zero provider API keys are stored in the browser.
       </p>
-    {/if}
-    {#if useProxy}
-      <p class="text-xs text-(--chat-text-muted) leading-relaxed mt-2">
-        CORS Proxy: Requests route through your proxy to bypass browser CORS
-        restrictions. Required for Claude OAuth and some providers.
+    {:else}
+      <p class="text-xs text-(--chat-text-secondary) leading-relaxed">
+        {adapter.appName || "This app"} uses your own API key to connect to LLM
+        providers. Your key is stored locally in the browser.
       </p>
+      {#if isCustom}
+        <p class="text-xs text-(--chat-text-muted) leading-relaxed mt-2">
+          Custom Endpoint: Point to any OpenAI-compatible API (Ollama, vLLM,
+          LMStudio) or other supported API types.
+        </p>
+      {/if}
+      {#if useProxy}
+        <p class="text-xs text-(--chat-text-muted) leading-relaxed mt-2">
+          CORS Proxy: Requests route through your proxy to bypass browser CORS
+          restrictions. Required for Claude OAuth and some providers.
+        </p>
+      {/if}
     {/if}
     <p class="text-[10px] text-(--chat-text-muted) mt-3">
       {adapter.appVersion ? `v${adapter.appVersion}` : ""}

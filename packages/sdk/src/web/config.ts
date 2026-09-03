@@ -1,4 +1,5 @@
 import type { StorageNamespace } from "../context";
+import { isEnterprise } from "../provider-config";
 
 export interface WebConfig {
   searchProvider: string;
@@ -33,10 +34,12 @@ export function loadWebConfig(ns: StorageNamespace): WebConfig {
       imageSearchProvider:
         parsed.imageSearchProvider || DEFAULT_WEB_CONFIG.imageSearchProvider,
       fetchProvider: parsed.fetchProvider || DEFAULT_WEB_CONFIG.fetchProvider,
-      apiKeys: {
-        ...DEFAULT_WEB_CONFIG.apiKeys,
-        ...(parsed.apiKeys || {}),
-      },
+      apiKeys: isEnterprise()
+        ? {}
+        : {
+            ...DEFAULT_WEB_CONFIG.apiKeys,
+            ...(parsed.apiKeys || {}),
+          },
     };
   } catch {
     return { ...DEFAULT_WEB_CONFIG };
@@ -53,10 +56,12 @@ export function saveWebConfig(
     imageSearchProvider:
       config.imageSearchProvider || current.imageSearchProvider,
     fetchProvider: config.fetchProvider || current.fetchProvider,
-    apiKeys: {
-      ...current.apiKeys,
-      ...(config.apiKeys || {}),
-    },
+    apiKeys: isEnterprise()
+      ? {}
+      : {
+          ...current.apiKeys,
+          ...(config.apiKeys || {}),
+        },
   };
   localStorage.setItem(webConfigKey(ns), JSON.stringify(next));
 }

@@ -43,6 +43,10 @@ export class ChatController {
     this.#runtime.dispose();
   }
 
+  getUserId() {
+    return this.#runtime.getUserId();
+  }
+
   getModelsForProvider(provider: string): Model<Api>[] {
     return this.#runtime.getModelsForProvider(provider);
   }

@@ -32,6 +32,7 @@ export interface AppAdapter {
   tools: AgentTool[] | ((ctx: AgentContext) => AgentTool[]);
   buildSystemPrompt: (skills: SkillMeta[], commandSnippets: string[]) => string;
   getDocumentId: () => Promise<string>;
+  getUserId?: () => Promise<string | null>;
   getDocumentMetadata?: () => Promise<{
     metadata: object;
     nameMap?: Record<number, string>;

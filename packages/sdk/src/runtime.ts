@@ -31,6 +31,7 @@ import {
 import {
   applyProxyToModel,
   buildCustomModel,
+  isEnterprise,
   loadSavedConfig,
   type ProviderConfig,
   saveConfig,
@@ -43,6 +44,7 @@ import {
   type SkillMeta,
   syncSkillsToVfs,
 } from "./skills";
+import { resolveOfficeSsoToken } from "./sso";
 import {
   type ChatSession,
   createSession,
@@ -55,6 +57,7 @@ import {
   saveVfsFiles,
 } from "./storage";
 import {
+  emitTelemetry,
   type TelemetrySink,
   type ToolPolicyConfig,
   wrapToolsWithPolicyAndAudit,
@@ -107,6 +110,7 @@ export interface RuntimeState {
   isUploading: boolean;
   skills: SkillMeta[];
   vfsInvalidatedAt: number;
+  userId: string | null;
 }
 
 type StateListener = (state: RuntimeState) => void;
@@ -215,6 +219,7 @@ export class AgentRuntime {
       isUploading: false,
       skills: [],
       vfsInvalidatedAt: 0,
+      userId: null,
     };
   }
 
@@ -270,7 +275,14 @@ export class AgentRuntime {
     }
   }
 
+  async resolveSsoToken(forceRefresh = false): Promise<string> {
+    return resolveOfficeSsoToken(forceRefresh);
+  }
+
   private async getActiveApiKey(config: ProviderConfig): Promise<string> {
+    if (isEnterprise() || config.authMethod === "sso") {
+      return this.resolveSsoToken();
+    }
     if (config.authMethod !== "oauth") {
       return config.apiKey;
     }
@@ -530,6 +542,41 @@ export class AgentRuntime {
       },
       streamFn: async (model, context, options) => {
         const cfg = this.config ?? config;
+        const isSso = isEnterprise() || cfg.authMethod === "sso";
+        if (isSso) {
+          let token = await this.resolveSsoToken();
+          const {
+            apiKey: _omitted,
+            headers: optHeaders,
+            ...restOptions
+          } = options;
+          const streamOptions = {
+            ...restOptions,
+            headers: {
+              ...optHeaders,
+              Authorization: `Bearer ${token}`,
+            },
+          };
+          try {
+            return await streamSimple(model, context, streamOptions);
+          } catch (err: any) {
+            const is401 =
+              err?.status === 401 ||
+              err?.statusCode === 401 ||
+              (typeof err?.message === "string" && err.message.includes("401"));
+            if (is401) {
+              token = await this.resolveSsoToken(true);
+              return await streamSimple(model, context, {
+                ...restOptions,
+                headers: {
+                  ...optHeaders,
+                  Authorization: `Bearer ${token}`,
+                },
+              });
+            }
+            throw err;
+          }
+        }
         const apiKey = await this.getActiveApiKey(cfg);
         return streamSimple(model, context, {
           ...options,
@@ -571,9 +618,19 @@ export class AgentRuntime {
     if (this.pendingConfig) {
       this.applyConfig(this.pendingConfig);
     }
+    if (!this.agent && (isEnterprise() || this.config?.authMethod === "sso")) {
+      const saved = this.config ?? loadSavedConfig(this.ns);
+      if (saved) {
+        this.applyConfig(saved);
+      }
+    }
     const agent = this.agent;
     if (!agent || !this.state.providerConfig) {
-      this.update({ error: "Please configure your API key first" });
+      const errorMsg =
+        isEnterprise() || this.config?.authMethod === "sso"
+          ? "Corporate SSO gateway is not configured"
+          : "Please configure your API key first";
+      this.update({ error: errorMsg });
       return;
     }
 
@@ -632,10 +689,26 @@ export class AgentRuntime {
     this.agent?.reset();
     this.context.reset();
     if (this.currentSessionId) {
+      const sessionId = this.currentSessionId;
       Promise.all([
-        saveSession(this.ns, this.currentSessionId, []),
-        saveVfsFiles(this.ns, this.currentSessionId, []),
-      ]).catch(console.error);
+        saveSession(this.ns, sessionId, []),
+        saveVfsFiles(this.ns, sessionId, []),
+      ]).catch((err) => {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        console.error("[Runtime] Failed to clear session storage:", err);
+        this.update({ error: `Storage failure: ${errorMsg}` });
+        const sink = this.telemetrySink ?? this.adapter.telemetrySink;
+        if (sink) {
+          emitTelemetry(sink, {
+            type: "storage_error",
+            error: errorMsg,
+            sessionId,
+            documentId: this.documentId,
+            userId: this.userId,
+            timestamp: Date.now(),
+          });
+        }
+      });
     }
     this.update({
       messages: [],
@@ -668,7 +741,20 @@ export class AgentRuntime {
         uploads: [],
       });
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
       console.error("[Runtime] Failed to create session:", err);
+      this.update({ error: `Storage failure: ${errorMsg}` });
+      const sink = this.telemetrySink ?? this.adapter.telemetrySink;
+      if (sink) {
+        emitTelemetry(sink, {
+          type: "storage_error",
+          error: errorMsg,
+          sessionId: this.currentSessionId,
+          documentId: this.documentId,
+          userId: this.userId,
+          timestamp: Date.now(),
+        });
+      }
     }
   }
 
@@ -706,7 +792,20 @@ export class AgentRuntime {
       });
       await this.refreshNameMap();
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
       console.error("[Runtime] Failed to switch session:", err);
+      this.update({ error: `Storage failure: ${errorMsg}` });
+      const sink = this.telemetrySink ?? this.adapter.telemetrySink;
+      if (sink) {
+        emitTelemetry(sink, {
+          type: "storage_error",
+          error: errorMsg,
+          sessionId,
+          documentId: this.documentId,
+          userId: this.userId,
+          timestamp: Date.now(),
+        });
+      }
     }
   }
 
@@ -715,35 +814,52 @@ export class AgentRuntime {
     if (this.isStreaming) return;
     this.agent?.reset();
     const deletedId = this.currentSessionId;
-    await Promise.all([
-      deleteSession(this.ns, deletedId),
-      saveVfsFiles(this.ns, deletedId, []),
-    ]);
-    const session = await getOrCreateCurrentSession(this.ns, this.documentId);
-    this.currentSessionId = session.id;
-    const vfsFiles = await loadVfsFiles(this.ns, session.id);
-    await this.context.restoreVfs(vfsFiles);
+    try {
+      await Promise.all([
+        deleteSession(this.ns, deletedId),
+        saveVfsFiles(this.ns, deletedId, []),
+      ]);
+      const session = await getOrCreateCurrentSession(this.ns, this.documentId);
+      this.currentSessionId = session.id;
+      const vfsFiles = await loadVfsFiles(this.ns, session.id);
+      await this.context.restoreVfs(vfsFiles);
 
-    if (session.agentMessages.length > 0 && this.agent) {
-      this.agent.state.messages = session.agentMessages;
+      if (session.agentMessages.length > 0 && this.agent) {
+        this.agent.state.messages = session.agentMessages;
+      }
+
+      await this.refreshSessions();
+      const uploadNames = await this.context.listUploads();
+      const stats = deriveStats(session.agentMessages);
+      this.update({
+        messages: agentMessagesToChatMessages(
+          session.agentMessages,
+          this.adapter.metadataTag,
+        ),
+        currentSession: session,
+        error: null,
+        sessionStats: {
+          ...stats,
+          contextWindow: this.state.sessionStats.contextWindow,
+        },
+        uploads: uploadNames.map((name) => ({ name, size: 0 })),
+      });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error("[Runtime] Failed to delete session:", err);
+      this.update({ error: `Storage failure: ${errorMsg}` });
+      const sink = this.telemetrySink ?? this.adapter.telemetrySink;
+      if (sink) {
+        emitTelemetry(sink, {
+          type: "storage_error",
+          error: errorMsg,
+          sessionId: deletedId,
+          documentId: this.documentId,
+          userId: this.userId,
+          timestamp: Date.now(),
+        });
+      }
     }
-
-    await this.refreshSessions();
-    const uploadNames = await this.context.listUploads();
-    const stats = deriveStats(session.agentMessages);
-    this.update({
-      messages: agentMessagesToChatMessages(
-        session.agentMessages,
-        this.adapter.metadataTag,
-      ),
-      currentSession: session,
-      error: null,
-      sessionStats: {
-        ...stats,
-        contextWindow: this.state.sessionStats.contextWindow,
-      },
-      uploads: uploadNames.map((name) => ({ name, size: 0 })),
-    });
   }
 
   private async onStreamingEnd() {
@@ -763,7 +879,20 @@ export class AgentRuntime {
       }
       this.bumpVfs();
     } catch (e) {
-      console.error(e);
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      console.error("[Runtime] Failed to save session on streaming end:", e);
+      this.update({ error: `Storage failure: ${errorMsg}` });
+      const sink = this.telemetrySink ?? this.adapter.telemetrySink;
+      if (sink) {
+        emitTelemetry(sink, {
+          type: "storage_error",
+          error: errorMsg,
+          sessionId,
+          documentId: this.documentId,
+          userId: this.userId,
+          timestamp: Date.now(),
+        });
+      }
     }
   }
 
@@ -804,6 +933,7 @@ export class AgentRuntime {
         console.error("Failed to resolve userId:", err);
         this.userId = null;
       }
+      this.update({ userId: this.userId });
 
       const skills = await getInstalledSkills(this.ns);
       this.skills = skills;
@@ -818,7 +948,8 @@ export class AgentRuntime {
       }
 
       const saved = loadSavedConfig(this.ns);
-      if (saved?.provider && saved?.apiKey && saved?.model) {
+      const isSso = isEnterprise() || saved?.authMethod === "sso";
+      if (saved?.provider && saved?.model && (isSso || saved?.apiKey)) {
         this.applyConfig(saved);
       }
 
