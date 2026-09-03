@@ -2,6 +2,139 @@ import { Readability } from "@mozilla/readability";
 import TurndownService from "turndown";
 import type { FetchProvider, FetchResult, WebContext } from "./types";
 
+function isPrivateIpv4(a: number, b: number, c: number, d: number): boolean {
+  // 0.0.0.0/8 (Current network)
+  if (a === 0) return true;
+  // 10.0.0.0/8 (RFC 1918)
+  if (a === 10) return true;
+  // 127.0.0.0/8 (Loopback)
+  if (a === 127) return true;
+  // 169.254.0.0/16 (Link-local / cloud metadata)
+  if (a === 169 && b === 254) return true;
+  // 172.16.0.0/12 (RFC 1918: 172.16.0.0 - 172.31.255.255)
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  // 192.168.0.0/16 (RFC 1918)
+  if (a === 192 && b === 168) return true;
+  // 100.64.0.0/10 (Shared address space / Carrier-grade NAT)
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  // 192.0.0.0/24 (IETF Protocol Assignments)
+  if (a === 192 && b === 0 && c === 0) return true;
+  // 192.0.2.0/24 (TEST-NET-1)
+  if (a === 192 && b === 0 && c === 2) return true;
+  // 198.18.0.0/15 (Network benchmark tests)
+  if (a === 198 && (b === 18 || b === 19)) return true;
+  // 198.51.100.0/24 (TEST-NET-2)
+  if (a === 198 && b === 51 && c === 100) return true;
+  // 203.0.113.0/24 (TEST-NET-3)
+  if (a === 203 && b === 0 && c === 113) return true;
+  // 224.0.0.0/4 (Multicast)
+  if (a >= 224 && a <= 239) return true;
+  // 240.0.0.0/4 (Reserved)
+  if (a >= 240) return true;
+  // 255.255.255.255 (Broadcast)
+  if (a === 255 && b === 255 && c === 255 && d === 255) return true;
+  return false;
+}
+
+export function assertSafeUrl(input: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(input);
+  } catch {
+    throw new Error(`Invalid URL: "${input}"`);
+  }
+
+  if (parsed.protocol !== "https:") {
+    throw new Error(
+      `Insecure protocol "${parsed.protocol}" rejected for URL "${input}". Only HTTPS is allowed.`,
+    );
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+
+  // Hostname checks (localhost, local, internal)
+  if (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname.endsWith(".local") ||
+    hostname.endsWith(".internal") ||
+    hostname === "instance-data"
+  ) {
+    throw new Error(
+      `Access to local/private host "${parsed.hostname}" is prohibited (SSRF guard).`,
+    );
+  }
+
+  // IPv4 dotted decimal check
+  const ipv4Match = hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (ipv4Match) {
+    const a = Number.parseInt(ipv4Match[1], 10);
+    const b = Number.parseInt(ipv4Match[2], 10);
+    const c = Number.parseInt(ipv4Match[3], 10);
+    const d = Number.parseInt(ipv4Match[4], 10);
+    if (a > 255 || b > 255 || c > 255 || d > 255 || isPrivateIpv4(a, b, c, d)) {
+      throw new Error(
+        `Access to private/internal IP "${parsed.hostname}" is prohibited (SSRF guard).`,
+      );
+    }
+  }
+
+  // IPv6 bracketed check
+  if (hostname.startsWith("[") && hostname.endsWith("]")) {
+    const rawIp6 = hostname.slice(1, -1);
+    if (rawIp6 === "::1" || rawIp6 === "::") {
+      throw new Error(
+        `Access to IPv6 loopback "${parsed.hostname}" is prohibited (SSRF guard).`,
+      );
+    }
+    // Link-local fe80::/10 (fe8, fe9, fea, feb)
+    if (/^fe[89ab]/i.test(rawIp6)) {
+      throw new Error(
+        `Access to IPv6 link-local "${parsed.hostname}" is prohibited (SSRF guard).`,
+      );
+    }
+    // Unique Local Address fc00::/7 (fc, fd)
+    if (/^f[cd]/i.test(rawIp6)) {
+      throw new Error(
+        `Access to IPv6 private address "${parsed.hostname}" is prohibited (SSRF guard).`,
+      );
+    }
+    // IPv4-mapped IPv6: ::ffff:A.B.C.D or ::ffff:hex:hex
+    if (rawIp6.startsWith("::ffff:")) {
+      const remainder = rawIp6.slice(7);
+      const mappedIpv4 = remainder.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+      if (mappedIpv4) {
+        const a = Number.parseInt(mappedIpv4[1], 10);
+        const b = Number.parseInt(mappedIpv4[2], 10);
+        const c = Number.parseInt(mappedIpv4[3], 10);
+        const d = Number.parseInt(mappedIpv4[4], 10);
+        if (isPrivateIpv4(a, b, c, d)) {
+          throw new Error(
+            `Access to private/internal IP "${parsed.hostname}" is prohibited (SSRF guard).`,
+          );
+        }
+      } else {
+        const hexParts = remainder.split(":");
+        if (hexParts.length === 2) {
+          const high = Number.parseInt(hexParts[0], 16);
+          const low = Number.parseInt(hexParts[1], 16);
+          const a = (high >> 8) & 0xff;
+          const b = high & 0xff;
+          const c = (low >> 8) & 0xff;
+          const d = low & 0xff;
+          if (isPrivateIpv4(a, b, c, d)) {
+            throw new Error(
+              `Access to private/internal IP "${parsed.hostname}" is prohibited (SSRF guard).`,
+            );
+          }
+        }
+      }
+    }
+  }
+
+  return parsed;
+}
+
 function isHtmlContentType(contentType: string): boolean {
   const ct = contentType.split(";")[0].trim().toLowerCase();
   return ct === "text/html" || ct === "application/xhtml+xml";
@@ -29,7 +162,9 @@ async function fetchWithProxy(
   proxyUrl?: string,
   init?: RequestInit,
 ): Promise<Response> {
+  assertSafeUrl(url);
   if (proxyUrl) {
+    assertSafeUrl(proxyUrl);
     try {
       return await fetch(`${proxyUrl}/?url=${encodeURIComponent(url)}`, init);
     } catch (err) {
@@ -182,6 +317,7 @@ const exaFetchProvider: FetchProvider = {
   id: "exa",
   requiresApiKey: true,
   async fetch(url, context): Promise<FetchResult> {
+    assertSafeUrl(url);
     const apiKey = getApiKey(context, "exa");
     if (!apiKey) {
       throw new Error(
@@ -238,6 +374,7 @@ export async function fetchWeb(
   context: WebContext = {},
   providerId?: string,
 ): Promise<FetchResult> {
+  assertSafeUrl(url);
   const provider = getFetchProvider(providerId);
   return provider.fetch(url, context);
 }

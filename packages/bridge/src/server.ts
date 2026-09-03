@@ -17,7 +17,6 @@ import {
   type BridgeVfsWriteParams,
   type BridgeWireMessage,
   createBridgeId,
-  DEFAULT_BRIDGE_HOST,
   DEFAULT_BRIDGE_PORT,
   DEFAULT_BRIDGE_WS_PATH,
   DEFAULT_EVENT_LIMIT,
@@ -75,6 +74,15 @@ export interface BridgeServerHandle {
 
 const DEFAULT_CERT_DIR = path.join(homedir(), ".office-addin-dev-certs");
 
+export const ALLOWED_BRIDGE_ORIGINS = new Set([
+  "https://localhost:3000",
+  "https://localhost:3001",
+  "https://localhost:3002",
+  "https://127.0.0.1:3000",
+  "https://127.0.0.1:3001",
+  "https://127.0.0.1:3002",
+]);
+
 function jsonResponse(
   res: ServerResponse,
   statusCode: number,
@@ -82,7 +90,6 @@ function jsonResponse(
 ): void {
   res.statusCode = statusCode;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
-  res.setHeader("Access-Control-Allow-Origin", "*");
   res.end(JSON.stringify(payload));
 }
 
@@ -170,7 +177,7 @@ function normalizeSessionSelector(value: string): string {
 export async function createBridgeServer(
   options: BridgeServerOptions = {},
 ): Promise<BridgeServerHandle> {
-  const host = options.host ?? DEFAULT_BRIDGE_HOST;
+  const host = "127.0.0.1";
   const port = options.port ?? DEFAULT_BRIDGE_PORT;
   const eventLimit = options.eventLimit ?? DEFAULT_EVENT_LIMIT;
   const requestTimeoutMs =
@@ -183,9 +190,20 @@ export async function createBridgeServer(
   const server = createServer(
     { key: tls.key, cert: tls.cert },
     async (req, res) => {
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-      res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+      const origin = req.headers.origin;
+      if (origin) {
+        if (!ALLOWED_BRIDGE_ORIGINS.has(origin)) {
+          jsonResponse(res, 403, {
+            ok: false,
+            error: { message: `Forbidden origin: ${origin}` },
+          });
+          return;
+        }
+        res.setHeader("Access-Control-Allow-Origin", origin);
+        res.setHeader("Vary", "Origin");
+        res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+        res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+      }
 
       if (req.method === "OPTIONS") {
         res.statusCode = 204;
@@ -623,6 +641,13 @@ export async function createBridgeServer(
   });
 
   server.on("upgrade", (request, socket, head) => {
+    const origin = request.headers.origin;
+    if (origin && !ALLOWED_BRIDGE_ORIGINS.has(origin)) {
+      socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+
     const requestUrl = request.url || DEFAULT_BRIDGE_WS_PATH;
     const url = new URL(requestUrl, `https://${host}:${port}`);
     if (url.pathname !== DEFAULT_BRIDGE_WS_PATH) {
@@ -637,7 +662,7 @@ export async function createBridgeServer(
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(port, host, () => {
+    server.listen(port, "127.0.0.1", () => {
       server.off("error", reject);
       resolve();
     });
