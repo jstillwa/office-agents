@@ -8,9 +8,9 @@
   <Description DefaultValue="AI assistant for Word documents."/>
   <IconUrl DefaultValue="https://openword.pages.dev/assets/icon-32.png"/>
   <HighResolutionIconUrl DefaultValue="https://openword.pages.dev/assets/icon-64.png"/>
-  <SupportUrl DefaultValue="https://www.contoso.com/help"/>
+  <SupportUrl DefaultValue="https://support.enterprise.org/help"/>
   <AppDomains>
-    <AppDomain>https://www.contoso.com</AppDomain>
+    <AppDomain>https://openword.pages.dev</AppDomain>
   </AppDomains>
   <Hosts>
     <Host Name="Document"/>
@@ -86,5 +86,14 @@
         <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Click to open the AI assistant"/>
       </bt:LongStrings>
     </Resources>
+    <WebApplicationInfo xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides/1.1">
+      <Id>{CLIENT_ID}</Id>
+      <Resource>api://{HOST}/{CLIENT_ID}</Resource>
+      <Scopes>
+        <Scope>access_as_user</Scope>
+        <Scope>profile</Scope>
+        <Scope>openid</Scope>
+      </Scopes>
+    </WebApplicationInfo>
   </VersionOverrides>
 </OfficeApp>
