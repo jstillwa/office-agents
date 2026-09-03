@@ -1,0 +1,16 @@
+# Global default code owner
+* @jstillwa
+
+# Workflows and CI/CD configurations require security review
+.github/workflows/ @jstillwa
+.github/CODEOWNERS @jstillwa
+.github/dependabot.yml @jstillwa
+SECURITY.md @jstillwa
+
+# Office Add-in Manifests require security review
+packages/excel/manifest.xml @jstillwa
+packages/excel/manifest.prod.xml @jstillwa
+packages/powerpoint/manifest.xml @jstillwa
+packages/powerpoint/manifest.prod.xml @jstillwa
+packages/word/manifest.xml @jstillwa
+packages/word/manifest.prod.xml @jstillwa
