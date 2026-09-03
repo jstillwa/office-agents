@@ -88,7 +88,14 @@
       {explanation || part.name}
     </span>
     {#if !isExpanded && ToolExtras}
-      <ToolExtras toolName={part.name} result={part.result} expanded={false} />
+      <svelte:boundary>
+        <ToolExtras toolName={part.name} result={part.result} expanded={false} />
+        {#snippet failed()}
+          <span class="inline-flex items-center text-[10px] text-(--chat-text-muted) opacity-70 border border-(--chat-border) rounded px-1">
+            ext error
+          </span>
+        {/snippet}
+      </svelte:boundary>
     {/if}
     <span class="shrink-0">
       {#if part.status === "pending"}
@@ -107,7 +114,14 @@
     <div class="border-t border-(--chat-border)">
       {#if ToolExtras}
         <div class="px-2 py-1 text-[10px] bg-(--chat-warning-bg) text-(--chat-warning) flex items-center gap-1 flex-wrap not-has-[*]:hidden">
-          <ToolExtras toolName={part.name} result={part.result} expanded={true} />
+          <svelte:boundary>
+            <ToolExtras toolName={part.name} result={part.result} expanded={true} />
+            {#snippet failed()}
+              <span class="inline-flex items-center text-[10px] text-(--chat-text-muted) opacity-70 border border-(--chat-border) rounded px-1">
+                ext error
+              </span>
+            {/snippet}
+          </svelte:boundary>
         </div>
       {/if}
 

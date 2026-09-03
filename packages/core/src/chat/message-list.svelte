@@ -9,6 +9,7 @@
 
   type ToolCallPart = Extract<MessagePart, { type: "toolCall" }>;
   type ThinkingPart = Extract<MessagePart, { type: "thinking" }>;
+  type TextPart = Extract<MessagePart, { type: "text" }>;
 
   type MessageGroup =
     | { type: "user"; message: ChatMessage }
@@ -98,12 +99,19 @@
     <ThinkingBlock thinking={(part as ThinkingPart).thinking} isStreaming={streaming} />
   {:else if part.type === "toolCall"}
     <ToolCallBlock part={part as ToolCallPart} />
-  {:else}
+  {:else if part.type === "text"}
     <MarkdownContent
-      text={part.text}
+      text={(part as TextPart).text}
       isStreaming={streaming}
       onLinkClick={adapter.handleLinkClick}
     />
+  {:else}
+    <span
+      class="inline-flex items-center text-xs text-(--chat-text-muted) opacity-70 border border-(--chat-border) rounded px-1.5 py-0.5"
+      data-testid="unsupported-part-fallback"
+    >
+      [unsupported content: {(part as unknown as { type: string }).type ?? "unknown"}]
+    </span>
   {/if}
 {/snippet}
 

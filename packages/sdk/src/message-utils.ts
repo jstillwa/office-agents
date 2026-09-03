@@ -9,6 +9,11 @@ import type {
 
 export type ToolCallStatus = "pending" | "running" | "complete" | "error";
 
+export type UnsupportedPart = {
+  type: Exclude<string, "text" | "thinking" | "toolCall">;
+  [key: string]: unknown;
+};
+
 export type MessagePart =
   | { type: "text"; text: string }
   | { type: "thinking"; thinking: string }
@@ -20,7 +25,8 @@ export type MessagePart =
       status: ToolCallStatus;
       result?: string;
       images?: { data: string; mimeType: string }[];
-    };
+    }
+  | UnsupportedPart;
 
 export interface ChatMessage {
   id: string;
@@ -79,7 +85,7 @@ export function extractPartsFromAssistantMessage(
   const existingToolCalls = new Map<string, MessagePart>();
   for (const part of existingParts) {
     if (part.type === "toolCall") {
-      existingToolCalls.set(part.id, part);
+      existingToolCalls.set((part as { id: string }).id, part);
     }
   }
 
@@ -90,15 +96,26 @@ export function extractPartsFromAssistantMessage(
     if (block.type === "thinking") {
       return { type: "thinking", thinking: block.thinking };
     }
-    const existing = existingToolCalls.get(block.id);
-    return {
-      type: "toolCall",
-      id: block.id,
-      name: block.name,
-      args: block.arguments as Record<string, unknown>,
-      status: existing?.type === "toolCall" ? existing.status : "pending",
-      result: existing?.type === "toolCall" ? existing.result : undefined,
-    };
+    if (
+      block.type === "toolCall" ||
+      ("name" in block && "arguments" in block)
+    ) {
+      const toolBlock = block as {
+        id: string;
+        name: string;
+        arguments: unknown;
+      };
+      const existing = existingToolCalls.get(toolBlock.id);
+      return {
+        type: "toolCall",
+        id: toolBlock.id,
+        name: toolBlock.name,
+        args: toolBlock.arguments as Record<string, unknown>,
+        status: existing?.type === "toolCall" ? existing.status : "pending",
+        result: existing?.type === "toolCall" ? existing.result : undefined,
+      };
+    }
+    return block as unknown as MessagePart;
   });
 }
 
