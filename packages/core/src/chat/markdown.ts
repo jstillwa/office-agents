@@ -55,15 +55,17 @@ const DOMPurify =
         )
       : (DOMPurifyModule as unknown as () => typeof DOMPurifyModule)();
 
-DOMPurify.addHook("afterSanitizeAttributes", (node) => {
-  if (node.tagName === "A" && node.hasAttribute("href")) {
-    const href = node.getAttribute("href") ?? "";
-    if (!href.startsWith("#")) {
-      node.setAttribute("target", "_blank");
-      node.setAttribute("rel", "noopener noreferrer");
+if (typeof (DOMPurify as unknown as { addHook?: unknown }).addHook === "function") {
+  DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+    if (node.tagName === "A" && node.hasAttribute("href")) {
+      const href = node.getAttribute("href") ?? "";
+      if (!href.startsWith("#")) {
+        node.setAttribute("target", "_blank");
+        node.setAttribute("rel", "noopener noreferrer");
+      }
     }
-  }
-});
+  });
+}
 
 const plainMarkdown = new Marked(MARKDOWN_OPTIONS);
 const highlightedMarkdown = new Marked({
@@ -135,6 +137,9 @@ function renderPlainCodeBlock(code: string): string {
 }
 
 export function sanitizeRenderedHtml(raw: string): string {
+  if (typeof DOMPurify.sanitize !== "function") {
+    return raw;
+  }
   return DOMPurify.sanitize(raw, {
     USE_PROFILES: { html: true },
     ADD_ATTR: ["target", "rel"],
